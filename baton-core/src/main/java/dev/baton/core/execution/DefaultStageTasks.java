@@ -2,23 +2,32 @@ package dev.baton.core.execution;
 
 import dev.baton.api.StageTasks;
 import dev.baton.api.TaskHandle;
+import dev.baton.core.deadline.Deadline;
+import dev.baton.core.deadline.DeadlineScheduler;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 
+/** Child tasks owned by one stage; closing the scope cancels unfinished children. */
 final class DefaultStageTasks implements StageTasks, AutoCloseable {
 
     private final ExecutorService executor;
-    private final List<Future<?>> tasks = new ArrayList<>();
+    private final Deadline deadline;
+    private final DeadlineScheduler deadlines;
+    private final List<TrackedTask<?>> tasks = new ArrayList<>();
     private boolean closed;
 
-    DefaultStageTasks(ExecutorService executor) {
+    DefaultStageTasks(
+            ExecutorService executor,
+            Deadline deadline,
+            DeadlineScheduler deadlines
+    ) {
         this.executor = Objects.requireNonNull(executor, "executor");
+        this.deadline = Objects.requireNonNull(deadline, "deadline");
+        this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
     }
 
     @Override
@@ -27,80 +36,49 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             throw new IllegalStateException("Stage task scope is closed");
         }
 
-        Future<T> future = executor.submit(
+        TrackedTask<T> tracked = TrackedTask.submit(
+                executor,
+                deadline,
+                deadlines,
                 Objects.requireNonNull(task, "task")
         );
-
-        tasks.add(future);
-        return new DefaultTaskHandle<>(future);
+        tasks.add(tracked);
+        return new TrackedTaskHandle<>(tracked);
     }
 
-    /**
-     * Child tasks belong to the stage. On stage completion, unfinished
-     * children are interrupted and the scope waits for their completion.
-     */
+    /** Cancels unfinished child tasks immediately; never waits for worker exit. */
     @Override
     public void close() {
-        List<Future<?>> snapshot;
-
+        List<TrackedTask<?>> snapshot;
         synchronized (this) {
             if (closed) {
                 return;
             }
-
             closed = true;
             snapshot = List.copyOf(tasks);
         }
-
         snapshot.stream()
                 .filter(task -> !task.isDone())
-                .forEach(task -> task.cancel(true));
-
-        boolean interrupted = false;
-
-        for (Future<?> task : snapshot) {
-            for (;;) {
-                try {
-                    task.get();
-                    break;
-                } catch (ExecutionException | java.util.concurrent.CancellationException e) {
-                    break;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                    task.cancel(true);
-                }
-            }
-        }
-
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
+                .forEach(TrackedTask::cancel);
     }
 
-    private record DefaultTaskHandle<T>(Future<T> future)
+    private record TrackedTaskHandle<T>(TrackedTask<T> task)
             implements TaskHandle<T> {
-
         @Override
         public T join() throws Exception {
             try {
-                return future.get();
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-
-                if (cause instanceof Exception exception) {
-                    throw exception;
+                return task.join();
+            } catch (TrackedTask.TaskExecutionException e) {
+                if (e.getCause() instanceof InterruptedException interrupted) {
+                    throw interrupted;
                 }
-                if (cause instanceof Error error) {
-                    throw error;
-                }
-
-                throw new RuntimeException(cause);
+                throw e;
             }
         }
 
         @Override
         public boolean isDone() {
-            return future.isDone();
+            return task.isDone();
         }
     }
 }

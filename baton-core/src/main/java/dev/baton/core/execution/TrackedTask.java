@@ -7,6 +7,7 @@ import dev.baton.core.deadline.DeadlineScheduler;
 
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -14,30 +15,32 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Tracks a task's logical result separately from the physical worker lifecycle.
- * A timeout completes the logical result immediately and requests interruption;
- * it does not claim that an interruption-resistant worker has exited.
- */
+/** Logical task outcome and physical worker lifecycle are tracked separately. */
 final class TrackedTask<T> {
 
     private final WorkerLifecycle lifecycle = new WorkerLifecycle();
     private final Deadline deadline;
     private final CompletableFuture<T> outcome = new CompletableFuture<>();
     private final AtomicBoolean terminal = new AtomicBoolean();
+    private final Object completionLock = new Object();
+    private volatile long workerStartedNanos;
+    private volatile long logicalCompletedNanos;
     private final DeadlineScheduler.Cancellable deadlineRegistration;
+    private final Runnable cancellationAction;
     private volatile Future<?> submitted;
 
     private TrackedTask(
             ExecutorService executor,
             Deadline deadline,
             DeadlineScheduler deadlines,
-            Callable<T> task
+            Callable<T> task,
+            Runnable cancellationAction
     ) {
         Objects.requireNonNull(executor, "executor");
         this.deadline = Objects.requireNonNull(deadline, "deadline");
         Objects.requireNonNull(deadlines, "deadlines");
         Objects.requireNonNull(task, "task");
+        this.cancellationAction = Objects.requireNonNull(cancellationAction, "cancellationAction");
 
         deadlineRegistration = deadlines.schedule(deadline, this::expire);
         try {
@@ -45,25 +48,46 @@ final class TrackedTask<T> {
                 if (!lifecycle.tryStart()) {
                     return;
                 }
+                workerStartedNanos = System.nanoTime();
+                T value = null;
+                Throwable failure = null;
                 try {
+                    if (terminal.get()) {
+                        return;
+                    }
                     if (deadline.isExpired()) {
                         expire();
                         return;
                     }
-                    T value = task.call();
-                    complete(value);
-                } catch (Throwable failure) {
-                    fail(failure);
+                    value = task.call();
+                } catch (Throwable taskFailure) {
+                    failure = taskFailure;
                 } finally {
+                    // Publish ordinary completion only after physical worker exit.
                     lifecycle.workerExited();
+                }
+                if (failure == null) {
+                    complete(value);
+                } else {
+                    fail(failure);
                 }
             });
         } catch (RuntimeException submissionFailure) {
             deadlineRegistration.cancel();
             lifecycle.markNotStarted();
-            outcome.completeExceptionally(submissionFailure);
             terminal.set(true);
+            logicalCompletedNanos = System.nanoTime();
+            outcome.completeExceptionally(submissionFailure);
+            runCancellationAction();
             throw submissionFailure;
+        }
+
+        // Covers a deadline/cancel race that happens before submitted is assigned.
+        if (terminal.get() && !lifecycle.hasStarted()) {
+            Future<?> future = submitted;
+            if (future != null) {
+                future.cancel(false);
+            }
         }
     }
 
@@ -73,55 +97,108 @@ final class TrackedTask<T> {
             DeadlineScheduler deadlines,
             Callable<T> task
     ) {
-        return new TrackedTask<>(executor, deadline, deadlines, task);
+        return submit(executor, deadline, deadlines, task, () -> { });
+    }
+
+    static <T> TrackedTask<T> submit(
+            ExecutorService executor,
+            Deadline deadline,
+            DeadlineScheduler deadlines,
+            Callable<T> task,
+            Runnable cancellationAction
+    ) {
+        return new TrackedTask<>(executor, deadline, deadlines, task, cancellationAction);
     }
 
     private void complete(T value) {
-        if (deadline.isExpired()) {
-            expire();
-            return;
+        boolean expired = false;
+        synchronized (completionLock) {
+            if (terminal.get()) {
+                return;
+            }
+            if (deadline.isExpired()) {
+                terminal.set(true);
+                logicalCompletedNanos = System.nanoTime();
+                expired = true;
+            } else {
+                terminal.set(true);
+                logicalCompletedNanos = System.nanoTime();
+                deadlineRegistration.cancel();
+                outcome.complete(value);
+            }
         }
-        if (terminal.compareAndSet(false, true)) {
-            deadlineRegistration.cancel();
-            outcome.complete(value);
+        if (expired) {
+            cancelWorkerAndChildren();
+            outcome.completeExceptionally(new DeadlineExceededException("Task deadline expired"));
         }
     }
 
     private void fail(Throwable failure) {
-        if (deadline.isExpired()) {
-            expire();
-            return;
+        boolean expired = false;
+        synchronized (completionLock) {
+            if (terminal.get()) {
+                return;
+            }
+            if (deadline.isExpired()) {
+                terminal.set(true);
+                logicalCompletedNanos = System.nanoTime();
+                expired = true;
+            } else {
+                terminal.set(true);
+                logicalCompletedNanos = System.nanoTime();
+                deadlineRegistration.cancel();
+                outcome.completeExceptionally(failure);
+            }
         }
-        if (terminal.compareAndSet(false, true)) {
-            deadlineRegistration.cancel();
-            outcome.completeExceptionally(failure);
+        if (expired) {
+            cancelWorkerAndChildren();
+            outcome.completeExceptionally(new DeadlineExceededException("Task deadline expired"));
         }
     }
 
     private void expire() {
-        TimeoutException timeout = new TimeoutException("Task deadline expired");
-        if (terminal.compareAndSet(false, true)) {
-            outcome.completeExceptionally(timeout);
-            lifecycle.requestCancellation();
-            Future<?> future = submitted;
-            if (future != null && !lifecycle.hasStarted()) {
-                future.cancel(false);
+        synchronized (completionLock) {
+            if (terminal.get()) {
+                return;
             }
+            terminal.set(true);
+            logicalCompletedNanos = System.nanoTime();
         }
+        cancelWorkerAndChildren();
+        outcome.completeExceptionally(new DeadlineExceededException("Task deadline expired"));
     }
 
     void cancel() {
-        if (!terminal.compareAndSet(false, true)) {
-            return;
+        synchronized (completionLock) {
+            if (terminal.get()) {
+                return;
+            }
+            terminal.set(true);
+            logicalCompletedNanos = System.nanoTime();
+            deadlineRegistration.cancel();
         }
-        deadlineRegistration.cancel();
-        outcome.completeExceptionally(new java.util.concurrent.CancellationException(
-                "Task was cancelled"
-        ));
+        cancelWorkerAndChildren();
+        outcome.completeExceptionally(new CancellationException("Task was cancelled"));
+    }
+
+    private void cancelWorkerAndChildren() {
         lifecycle.requestCancellation();
+        cancelQueuedSubmission();
+        runCancellationAction();
+    }
+
+    private void cancelQueuedSubmission() {
         Future<?> future = submitted;
         if (future != null && !lifecycle.hasStarted()) {
             future.cancel(false);
+        }
+    }
+
+    private void runCancellationAction() {
+        try {
+            cancellationAction.run();
+        } catch (Throwable ignored) {
+            // Cancellation must remain best-effort and must not replace the outcome.
         }
     }
 
@@ -130,6 +207,9 @@ final class TrackedTask<T> {
             return outcome.get();
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
+            if (cause instanceof InterruptedException interrupted) {
+                throw new TaskExecutionException(interrupted);
+            }
             if (cause instanceof Exception exception) {
                 throw exception;
             }
@@ -150,5 +230,31 @@ final class TrackedTask<T> {
 
     WorkerLifecycle lifecycle() {
         return lifecycle;
+    }
+
+    long elapsedNanos() {
+        long started = workerStartedNanos;
+        if (started == 0L) {
+            return 0L;
+        }
+        long completed = logicalCompletedNanos;
+        long end = completed == 0L ? System.nanoTime() : completed;
+        return Math.max(0L, end - started);
+    }
+
+    static final class DeadlineExceededException extends TimeoutException {
+        private static final long serialVersionUID = 1L;
+
+        DeadlineExceededException(String message) {
+            super(message);
+        }
+    }
+
+    static final class TaskExecutionException extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        TaskExecutionException(Throwable cause) {
+            super(cause);
+        }
     }
 }

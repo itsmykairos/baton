@@ -1,0 +1,255 @@
+package dev.baton.core.execution;
+
+import dev.baton.api.ContextKey;
+import dev.baton.api.ContextPatch;
+import dev.baton.api.ContextView;
+import dev.baton.api.FailurePolicy;
+import dev.baton.api.Pipeline;
+import dev.baton.api.PipelineResult;
+import dev.baton.api.PipelineStatus;
+import dev.baton.api.StageOptions;
+import dev.baton.api.StageStatus;
+import dev.baton.api.WorkerTermination;
+import dev.baton.core.builder.DefaultPipelineBuilder;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class ExecutionEngineTest {
+
+    @Test
+    void timeoutDiscardsLatePatchAndContinueRunsNextStage() throws Exception {
+        ContextKey<String> late = ContextKey.of("late", String.class);
+        ContextKey<String> next = ContextKey.of("next", String.class);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("slow", context -> {
+                    ignoreInterruptsFor(300);
+                    return ContextPatch.builder().put(late, "late-value").build();
+                }, StageOptions.defaults()
+                        .withTimeout(Duration.ofMillis(40))
+                        .withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage("next", context -> ContextPatch.builder().put(next, "ran").build())
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
+        assertThat(result.stages().getFirst().status()).isEqualTo(StageStatus.TIMED_OUT);
+        assertThat(result.stages().getFirst().workerTermination())
+                .isEqualTo(WorkerTermination.UNCONFIRMED);
+        assertThat(result.context().contains(late)).isFalse();
+        assertThat(result.context().get(next)).isEqualTo("ran");
+        assertThat(result.isSuccessful()).isFalse();
+    }
+
+    @Test
+    void parallelLayerWaitsForLogicalTimeoutsNotPhysicalWorkerExit() throws Exception {
+        CountDownLatch bothStarted = new CountDownLatch(2);
+        CountDownLatch bothExited = new CountDownLatch(2);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .parallel("parallel", parallel -> {
+                    parallel.stage("first", context -> {
+                        bothStarted.countDown();
+                        try {
+                            ignoreInterruptsFor(2_000);
+                            return ContextPatch.empty();
+                        } finally {
+                            bothExited.countDown();
+                        }
+                    }, StageOptions.defaults()
+                            .withTimeout(Duration.ofMillis(90))
+                            .withFailurePolicy(FailurePolicy.CONTINUE));
+                    parallel.stage("second", context -> {
+                        bothStarted.countDown();
+                        try {
+                            ignoreInterruptsFor(2_000);
+                            return ContextPatch.empty();
+                        } finally {
+                            bothExited.countDown();
+                        }
+                    }, StageOptions.defaults()
+                            .withTimeout(Duration.ofMillis(40))
+                            .withFailurePolicy(FailurePolicy.CONTINUE));
+                })
+                .build();
+
+        var run = pipeline.start(ContextView.empty());
+        assertThat(bothStarted.await(1, TimeUnit.SECONDS)).isTrue();
+        PipelineResult result = run.await();
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
+        assertThat(result.stages()).extracting("status")
+                .containsExactly(StageStatus.TIMED_OUT, StageStatus.TIMED_OUT);
+        assertThat(result.stages()).allSatisfy(stage ->
+                assertThat(stage.workerTermination()).isEqualTo(WorkerTermination.UNCONFIRMED));
+        assertThat(bothExited.getCount()).isGreaterThan(0L);
+        assertThat(bothExited.await(3, TimeUnit.SECONDS)).isTrue();
+    }
+
+
+    @Test
+    void returningFromStageCancelsUnfinishedChildTasks() throws Exception {
+        CountDownLatch childStarted = new CountDownLatch(1);
+        CountDownLatch childInterrupted = new CountDownLatch(1);
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("parent", context -> {
+                    context.tasks().fork(() -> {
+                        childStarted.countDown();
+                        try {
+                            new CountDownLatch(1).await();
+                        } catch (InterruptedException e) {
+                            childInterrupted.countDown();
+                            throw e;
+                        }
+                        return null;
+                    });
+                    if (!childStarted.await(1, TimeUnit.SECONDS)) {
+                        throw new AssertionError("child did not start");
+                    }
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.isSuccessful()).isTrue();
+        assertThat(childInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void parentTimeoutCancelsItsChildTasksImmediately() throws Exception {
+        CountDownLatch childStarted = new CountDownLatch(1);
+        CountDownLatch childInterrupted = new CountDownLatch(1);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("parent", context -> {
+                    context.tasks().fork(() -> {
+                        childStarted.countDown();
+                        try {
+                            new CountDownLatch(1).await();
+                        } catch (InterruptedException e) {
+                            childInterrupted.countDown();
+                            throw e;
+                        }
+                        return null;
+                    });
+                    if (!childStarted.await(1, TimeUnit.SECONDS)) {
+                        throw new AssertionError("child did not start");
+                    }
+                    ignoreInterruptsFor(300);
+                    return ContextPatch.empty();
+                }, StageOptions.defaults().withTimeout(Duration.ofMillis(40)))
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.TIMED_OUT);
+        assertThat(childInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
+    }
+
+
+
+    @Test
+    void sequentialStageRunsOnAVirtualThread() throws Exception {
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("virtual", context -> {
+                    assertThat(Thread.currentThread().isVirtual()).isTrue();
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+        assertThat(result.isSuccessful()).isTrue();
+        assertThat(result.stages().getFirst().workerTermination())
+                .isEqualTo(WorkerTermination.TERMINATED);
+    }
+
+    @Test
+    void applicationTimeoutExceptionIsAStageFailureNotAFrameworkTimeout() throws Exception {
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("application-timeout", context -> {
+                    throw new TimeoutException("downstream request timed out");
+                })
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
+        assertThat(result.stages().getFirst().status()).isEqualTo(StageStatus.FAILED);
+        assertThat(result.stages().getFirst().failure().orElseThrow())
+                .isInstanceOf(TimeoutException.class)
+                .hasMessage("downstream request timed out");
+    }
+
+    @Test
+    void explicitCancellationReturnsWithoutWaitingForWorkerExit() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("uncooperative", context -> {
+                    started.countDown();
+                    ignoreInterruptsFor(2_000);
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        var run = pipeline.start(ContextView.empty());
+        assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+
+        long start = System.nanoTime();
+        assertThat(run.cancel()).isTrue();
+        long cancelMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+        assertThat(cancelMillis).isLessThan(250L);
+        PipelineResult result = run.await();
+        assertThat(result.status()).isEqualTo(PipelineStatus.CANCELLED);
+        assertThat(result.stages().getFirst().workerTermination())
+                .isEqualTo(WorkerTermination.UNCONFIRMED);
+    }
+
+    @Test
+    void interruptingAwaitCallerDoesNotCancelPipeline() throws Exception {
+        CountDownLatch stageStarted = new CountDownLatch(1);
+        CountDownLatch allowStageToFinish = new CountDownLatch(1);
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("wait", context -> {
+                    stageStarted.countDown();
+                    allowStageToFinish.await();
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        var run = pipeline.start(ContextView.empty());
+        assertThat(stageStarted.await(1, TimeUnit.SECONDS)).isTrue();
+        AtomicReference<Throwable> awaitFailure = new AtomicReference<>();
+        Thread waiter = Thread.ofVirtual().start(() -> {
+            try {
+                run.await();
+            } catch (Throwable failure) {
+                awaitFailure.set(failure);
+            }
+        });
+
+        waiter.interrupt();
+        waiter.join(1_000);
+        assertThat(awaitFailure.get()).isInstanceOf(InterruptedException.class);
+        assertThat(run.isDone()).isFalse();
+
+        allowStageToFinish.countDown();
+        assertThat(run.await().status()).isEqualTo(PipelineStatus.COMPLETED);
+    }
+
+    private static void ignoreInterruptsFor(long millis) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis);
+        while (System.nanoTime() < deadline) {
+            Thread.interrupted();
+        }
+    }
+}

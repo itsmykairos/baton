@@ -246,6 +246,62 @@ class ExecutionEngineTest {
         assertThat(run.await().status()).isEqualTo(PipelineStatus.COMPLETED);
     }
 
+
+    @Test
+    void parallelResultsAndPatchMergeRemainInDefinitionOrder() throws Exception {
+        ContextKey<String> first = ContextKey.of("first", String.class);
+        ContextKey<String> second = ContextKey.of("second", String.class);
+        CountDownLatch slowStarted = new CountDownLatch(1);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .parallel("parallel", parallel -> {
+                    parallel.stage("first", context -> {
+                        slowStarted.countDown();
+                        Thread.sleep(100);
+                        return ContextPatch.builder().put(first, "one").build();
+                    });
+                    parallel.stage("second", context -> {
+                        if (!slowStarted.await(1, TimeUnit.SECONDS)) {
+                            throw new AssertionError("first stage did not start");
+                        }
+                        return ContextPatch.builder().put(second, "two").build();
+                    });
+                })
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.isSuccessful()).isTrue();
+        assertThat(result.stages()).extracting("stageId")
+                .containsExactly("first", "second");
+        assertThat(result.context().get(first)).isEqualTo("one");
+        assertThat(result.context().get(second)).isEqualTo("two");
+    }
+
+    @Test
+    void parallelPatchConflictFailsLayerWithoutPartiallyApplyingOutputs() throws Exception {
+        ContextKey<String> shared = ContextKey.of("shared", String.class);
+        ContextKey<String> prior = ContextKey.of("prior", String.class);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("prior", context -> ContextPatch.builder().put(prior, "kept").build())
+                .parallel("conflict", parallel -> {
+                    parallel.stage("left", context ->
+                            ContextPatch.builder().put(shared, "same").build());
+                    parallel.stage("right", context ->
+                            ContextPatch.builder().put(shared, "same").build());
+                })
+                .build();
+
+        PipelineResult result = pipeline.start(ContextView.empty()).await();
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
+        assertThat(result.context().get(prior)).isEqualTo("kept");
+        assertThat(result.context().contains(shared)).isFalse();
+        assertThat(result.stages()).extracting("status")
+                .containsExactly(StageStatus.SUCCEEDED, StageStatus.SUCCEEDED, StageStatus.SUCCEEDED);
+    }
+
     private static void ignoreInterruptsFor(long millis) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis);
         while (System.nanoTime() < deadline) {

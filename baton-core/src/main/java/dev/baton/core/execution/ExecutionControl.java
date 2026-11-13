@@ -1,49 +1,67 @@
 package dev.baton.core.execution;
 
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
+/** Coordinates cancellation and registration of the run's active stage tasks. */
 final class ExecutionControl {
 
-    private final AtomicBoolean cancelled = new AtomicBoolean();
-    private final Set<TrackedTask<?>> activeTasks = ConcurrentHashMap.newKeySet();
+    private final Object lock = new Object();
+    private final Set<TrackedTask<?>> activeTasks = new HashSet<>();
+    private boolean cancelled;
 
     boolean cancel() {
-        if (!cancelled.compareAndSet(false, true)) {
-            return false;
+        Set<TrackedTask<?>> snapshot;
+        synchronized (lock) {
+            if (cancelled) {
+                return false;
+            }
+            cancelled = true;
+            snapshot = Set.copyOf(activeTasks);
         }
-        activeTasks.forEach(TrackedTask::cancel);
+        // Never invoke task cancellation (which may close child scopes) under
+        // the registration lock.
+        snapshot.forEach(TrackedTask::cancel);
         return true;
     }
 
     void track(TrackedTask<?> task) {
-        if (cancelled.get()) {
-            task.cancel();
-            return;
+        boolean cancelImmediately;
+        synchronized (lock) {
+            cancelImmediately = cancelled;
+            if (!cancelImmediately) {
+                activeTasks.add(task);
+            }
         }
-        activeTasks.add(task);
-        // Close the race where cancellation happens between the first check and add.
-        if (cancelled.get() && activeTasks.remove(task)) {
+        if (cancelImmediately) {
             task.cancel();
         }
     }
 
     void untrack(TrackedTask<?> task) {
-        activeTasks.remove(task);
+        synchronized (lock) {
+            activeTasks.remove(task);
+        }
     }
 
+    /** Cancels currently registered tasks after an unexpected engine failure. */
     void abort() {
-        activeTasks.forEach(TrackedTask::cancel);
+        Set<TrackedTask<?>> snapshot;
+        synchronized (lock) {
+            snapshot = Set.copyOf(activeTasks);
+        }
+        snapshot.forEach(TrackedTask::cancel);
     }
 
     boolean isCancelled() {
-        return cancelled.get();
+        synchronized (lock) {
+            return cancelled;
+        }
     }
 
     void throwIfCancelled() {
-        if (cancelled.get()) {
+        if (isCancelled()) {
             throw new CancellationException("Pipeline execution was cancelled");
         }
     }

@@ -52,6 +52,47 @@ class TrackedTaskTest {
         }
     }
 
+
+    @Test
+    void cancellationAndNormalCompletionRaceHasExactlyOneLogicalOutcome() throws Exception {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor();
+             var deadlines = new DeadlineScheduler()) {
+            for (int i = 0; i < 250; i++) {
+                CountDownLatch start = new CountDownLatch(1);
+                TrackedTask<Integer> task = TrackedTask.submit(
+                        executor,
+                        Deadline.unlimited(),
+                        deadlines,
+                        () -> {
+                            start.await();
+                            return 7;
+                        }
+                );
+
+                Thread canceller = Thread.ofVirtual().start(() -> {
+                    try {
+                        start.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    task.cancel();
+                });
+                start.countDown();
+                canceller.join();
+
+                try {
+                    assertThat(task.join()).isEqualTo(7);
+                } catch (java.util.concurrent.CancellationException expected) {
+                    assertThat(task.isDone()).isTrue();
+                }
+                assertThat(task.isDone()).isTrue();
+                assertThat(task.lifecycle().awaitExit(1, TimeUnit.SECONDS)).isTrue();
+                assertThat(task.workerTermination()).isIn(
+                        WorkerTermination.TERMINATED, WorkerTermination.NOT_STARTED);
+            }
+        }
+    }
+
     @Test
     void completedTaskRetainsItsResult() throws Exception {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor();

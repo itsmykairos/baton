@@ -1,6 +1,7 @@
 package dev.baton.core.execution;
 
 import dev.baton.api.ContextKey;
+import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.FailurePolicy;
@@ -299,7 +300,176 @@ class ExecutionEngineTest {
         assertThat(result.context().get(prior)).isEqualTo("kept");
         assertThat(result.context().contains(shared)).isFalse();
         assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.SUCCEEDED, StageStatus.SUCCEEDED, StageStatus.SUCCEEDED);
+                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED, StageStatus.FAILED);
+        assertThat(result.stages().get(1).failure().orElseThrow())
+                .isInstanceOf(ContextMergeException.class)
+                .hasMessageContaining("shared");
+        assertThat(result.stages().get(1).output()).isPresent();
+        assertThat(result.failure().orElseThrow()).isInstanceOf(ContextMergeException.class);
+    }
+
+    @Test
+    void mergeConflictStillAppliesNonConflictingOutputsOfTheLayer() throws Exception {
+        ContextKey<String> shared = ContextKey.of("shared", String.class);
+        ContextKey<String> own = ContextKey.of("own", String.class);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .parallel("layer", parallel -> {
+                    parallel.stage("left", context -> ContextPatch.builder().put(shared, "l").build());
+                    parallel.stage("right", context -> ContextPatch.builder().put(shared, "r").build());
+                    parallel.stage("independent", context -> ContextPatch.builder().put(own, "kept").build());
+                })
+                .stage("after", context -> ContextPatch.empty())
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
+        assertThat(result.stages()).extracting("status")
+                .containsExactly(StageStatus.FAILED, StageStatus.FAILED, StageStatus.SUCCEEDED);
+        assertThat(result.context().get(own)).isEqualTo("kept");
+        assertThat(result.context().contains(shared)).isFalse();
+    }
+
+    @Test
+    void laterLayerOverwritesValueFromEarlierLayer() throws Exception {
+        ContextKey<String> value = ContextKey.of("value", String.class);
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("first", context -> ContextPatch.builder().put(value, "first").build())
+                .stage("second", context -> ContextPatch.builder().put(value, "second").build())
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+
+        assertThat(result.isSuccessful()).isTrue();
+        assertThat(result.context().get(value)).isEqualTo("second");
+    }
+
+    @Test
+    void failFastFailureCancelsSlowSiblingsInTheSameLayer() throws Exception {
+        for (FailurePolicy siblingPolicy : FailurePolicy.values()) {
+            IllegalStateException boom = new IllegalStateException("boom");
+            CountDownLatch slowStarted = new CountDownLatch(1);
+            CountDownLatch slowInterrupted = new CountDownLatch(1);
+
+            Pipeline pipeline = new DefaultPipelineBuilder()
+                    .parallel("layer", parallel -> {
+                        parallel.stage("slow", context -> {
+                            slowStarted.countDown();
+                            try {
+                                Thread.sleep(5_000);
+                            } catch (InterruptedException e) {
+                                slowInterrupted.countDown();
+                                throw e;
+                            }
+                            return ContextPatch.empty();
+                        }, StageOptions.defaults().withFailurePolicy(siblingPolicy));
+                        parallel.stage("fails", context -> {
+                            if (!slowStarted.await(1, TimeUnit.SECONDS)) {
+                                throw new AssertionError("slow stage did not start");
+                            }
+                            throw boom;
+                        });
+                    })
+                    .stage("never", context -> ContextPatch.empty())
+                    .build();
+
+            long start = System.nanoTime();
+            PipelineResult result = pipeline.run(ContextView.empty());
+            long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            assertThat(millis).as("sibling policy %s", siblingPolicy).isLessThan(1_000L);
+            assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
+            assertThat(result.stages()).extracting("stageId").containsExactly("slow", "fails");
+            assertThat(result.stages()).extracting("status")
+                    .containsExactly(StageStatus.CANCELLED, StageStatus.FAILED);
+            assertThat(result.failure()).containsSame(boom);
+            assertThat(slowInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void continueFailureDoesNotCancelSiblings() throws Exception {
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .parallel("layer", parallel -> {
+                    parallel.stage("slow", context -> {
+                        Thread.sleep(150);
+                        return ContextPatch.empty();
+                    });
+                    parallel.stage("fails", context -> {
+                        throw new IllegalStateException("boom");
+                    }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE));
+                })
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
+        assertThat(result.stages()).extracting("status")
+                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
+    }
+
+    @Test
+    void unjoinedFailedChildTaskFailsTheStage() throws Exception {
+        IllegalStateException childFailure = new IllegalStateException("child failed");
+
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("parent", context -> {
+                    var child = context.tasks().fork(() -> {
+                        throw childFailure;
+                    });
+                    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                    while (!child.isDone() && System.nanoTime() < until) {
+                        Thread.sleep(5);
+                    }
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
+        assertThat(result.stages().getFirst().status()).isEqualTo(StageStatus.FAILED);
+        assertThat(result.stages().getFirst().failure()).containsSame(childFailure);
+    }
+
+    @Test
+    void joinedAndHandledChildFailureDoesNotFailTheStage() throws Exception {
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("parent", context -> {
+                    var child = context.tasks().fork(() -> {
+                        throw new IllegalStateException("child failed");
+                    });
+                    try {
+                        child.join();
+                    } catch (IllegalStateException handled) {
+                        // recovered by the stage
+                    }
+                    return ContextPatch.empty();
+                })
+                .build();
+
+        PipelineResult result = pipeline.run(ContextView.empty());
+
+        assertThat(result.isSuccessful()).isTrue();
+    }
+
+    @Test
+    void syncRunReturnsPromptlyAfterTimeoutWhenWorkerIgnoresInterrupts() throws Exception {
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .stage("uncooperative", context -> {
+                    ignoreInterruptsFor(2_000);
+                    return ContextPatch.empty();
+                }, StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
+                .build();
+
+        long start = System.nanoTime();
+        PipelineResult result = pipeline.run(ContextView.empty());
+        long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+        assertThat(result.status()).isEqualTo(PipelineStatus.TIMED_OUT);
+        assertThat(millis).isLessThan(500L);
     }
 
     private static void ignoreInterruptsFor(long millis) {

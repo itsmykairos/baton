@@ -26,14 +26,26 @@ the library modules.
 - A stage is the unit of execution and owns its child-task scope.
 - A stage scope uses a virtual-thread-per-task executor in the initial implementation.
 - On normal completion, close the scope and collect task outcomes.
-- On timeout, fail-fast, or parent cancellation, request interruption with
-  `shutdownNow()` and wait only for a bounded grace period.
+- On timeout, fail-fast, or parent cancellation, request interruption and never wait
+  for worker exit. A FAIL_FAST failure in a parallel layer cancels its unfinished siblings
+  immediately.
+- If a stage returns while a child task it never joined has already failed, the stage
+  fails with that child's exception.
+- Timeouts for all runs share one daemon scheduler thread; each registration is
+  cancelled individually and its action runs on a virtual thread.
 - Record worker termination separately; interruption is cooperative and does not guarantee
   that a task has stopped.
 - Child pipelines are ordinary pipelines composed by a parent stage. They have their own
   layers, inherit the parent's absolute deadline, and propagate cancellation to active
   descendants.
+  *(Pending: today `Pipeline.asStage()` runs the child as an ordinary stage via
+  `pipeline.run()`, with its own executor and no inherited deadline.)*
 - Context snapshots are immutable. A stage returns one patch for the pipeline to merge.
+  Writes to the same key by two stages of one parallel layer are a conflict: those stages
+  are FAILED and their patches are not applied. Across layers, later writes overwrite
+  earlier values.
+- BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
+  run time, not at build time.
 
 ## Deliberately deferred
 

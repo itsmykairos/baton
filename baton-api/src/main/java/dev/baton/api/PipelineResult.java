@@ -21,6 +21,10 @@ public interface PipelineResult {
     /**
      * True only if the pipeline completed successfully
      * without failed, blocked, timed-out or cancelled stages.
+     *
+     * <p>A run can end {@link PipelineStatus#COMPLETED} and still be unsuccessful:
+     * BLOCKED stages and stages that failed under {@link FailurePolicy#CONTINUE}
+     * do not stop the run.</p>
      */
     boolean isSuccessful();
 

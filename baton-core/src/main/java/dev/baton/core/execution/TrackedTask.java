@@ -6,9 +6,11 @@ import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -222,6 +224,32 @@ final class TrackedTask<T> {
 
     boolean isDone() {
         return outcome.isDone();
+    }
+
+    /** Runs {@code callback} once the logical outcome is known (immediately if it already is). */
+    void onDone(Runnable callback) {
+        Objects.requireNonNull(callback, "callback");
+        outcome.whenComplete((value, failure) -> callback.run());
+    }
+
+    /**
+     * Returns the task's own failure if it has completed with one. Cancellation and
+     * deadline expiry are lifecycle outcomes, not task failures, and are not reported.
+     */
+    Optional<Throwable> failureIfDone() {
+        if (!outcome.isCompletedExceptionally()) {
+            return Optional.empty();
+        }
+        Throwable failure = outcome.handle((value, error) -> error).getNow(null);
+        if (failure instanceof CompletionException wrapped && wrapped.getCause() != null) {
+            failure = wrapped.getCause();
+        }
+        if (failure == null
+                || failure instanceof CancellationException
+                || failure instanceof DeadlineExceededException) {
+            return Optional.empty();
+        }
+        return Optional.of(failure);
     }
 
     WorkerTermination workerTermination() {

@@ -17,7 +17,7 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
     private final ExecutorService executor;
     private final Deadline deadline;
     private final DeadlineScheduler deadlines;
-    private final List<TrackedTask<?>> tasks = new ArrayList<>();
+    private final List<TrackedTaskHandle<?>> handles = new ArrayList<>();
     private boolean closed;
 
     DefaultStageTasks(
@@ -42,30 +42,87 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
                 deadlines,
                 Objects.requireNonNull(task, "task")
         );
-        tasks.add(tracked);
-        return new TrackedTaskHandle<>(tracked);
+        TrackedTaskHandle<T> handle = new TrackedTaskHandle<>(tracked);
+        handles.add(handle);
+        return handle;
     }
 
-    /** Cancels unfinished child tasks immediately; never waits for worker exit. */
+    /**
+     * Cancels unfinished child tasks immediately; never waits for worker exit
+     * and never throws. Used when the owning stage fails, times out or is cancelled.
+     */
     @Override
     public void close() {
-        List<TrackedTask<?>> snapshot;
+        List<TrackedTaskHandle<?>> snapshot;
         synchronized (this) {
             if (closed) {
                 return;
             }
             closed = true;
-            snapshot = List.copyOf(tasks);
+            snapshot = List.copyOf(handles);
         }
+        cancelUnfinished(snapshot);
+    }
+
+    /**
+     * Closes the scope after the owning stage returned normally. Unfinished
+     * children are cancelled. If a child already completed with a failure that
+     * the stage never observed through {@link TaskHandle#join()}, that failure
+     * is thrown so it fails the stage instead of being lost.
+     */
+    void closeAndVerify() throws Exception {
+        List<TrackedTaskHandle<?>> snapshot;
+        synchronized (this) {
+            closed = true;
+            snapshot = List.copyOf(handles);
+        }
+        cancelUnfinished(snapshot);
+
+        Throwable first = null;
+        for (TrackedTaskHandle<?> handle : snapshot) {
+            if (handle.observed) {
+                continue;
+            }
+            Throwable failure = handle.task.failureIfDone().orElse(null);
+            if (failure == null) {
+                continue;
+            }
+            if (first == null) {
+                first = failure;
+            } else if (first != failure) {
+                first.addSuppressed(failure);
+            }
+        }
+        if (first instanceof Exception exception) {
+            throw exception;
+        }
+        if (first instanceof Error error) {
+            throw error;
+        }
+        if (first != null) {
+            throw new RuntimeException(first);
+        }
+    }
+
+    private static void cancelUnfinished(List<TrackedTaskHandle<?>> snapshot) {
         snapshot.stream()
+                .map(handle -> handle.task)
                 .filter(task -> !task.isDone())
                 .forEach(TrackedTask::cancel);
     }
 
-    private record TrackedTaskHandle<T>(TrackedTask<T> task)
-            implements TaskHandle<T> {
+    private static final class TrackedTaskHandle<T> implements TaskHandle<T> {
+
+        private final TrackedTask<T> task;
+        private volatile boolean observed;
+
+        private TrackedTaskHandle(TrackedTask<T> task) {
+            this.task = task;
+        }
+
         @Override
         public T join() throws Exception {
+            observed = true;
             try {
                 return task.join();
             } catch (TrackedTask.TaskExecutionException e) {

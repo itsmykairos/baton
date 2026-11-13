@@ -1,5 +1,6 @@
 package dev.baton.core.execution;
 
+import dev.baton.api.ContextKey;
 import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -19,17 +20,32 @@ import dev.baton.core.result.DefaultStageResult;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.stream.Collectors;
 
+/**
+ * Runs one pipeline execution. Progress (the current context and the stage
+ * results so far) is kept in fields so a caller can report partial results
+ * if execution ends unexpectedly.
+ */
 final class ExecutionEngine {
 
     private final PipelineDefinition definition;
     private final ExecutorService executor;
     private final DeadlineScheduler deadlines;
     private final ExecutionControl control;
+
+    private ContextView context;
+    private final List<StageResult> results = new ArrayList<>();
 
     ExecutionEngine(
             PipelineDefinition definition,
@@ -44,94 +60,125 @@ final class ExecutionEngine {
     }
 
     DefaultPipelineResult execute(ContextView input) {
-        ContextView context = Objects.requireNonNull(input, "input");
-        List<StageResult> results = new ArrayList<>();
+        context = Objects.requireNonNull(input, "input");
 
         try {
             for (LayerDefinition layer : definition.layers()) {
                 control.throwIfCancelled();
 
-                List<StageResult> layerResults = executeLayer(layer, context);
-                results.addAll(layerResults);
-
-                ContextPatch merged = mergeSuccessfulOutputs(layerResults);
-                context = merged.applyTo(context);
+                LayerOutcome layerOutcome = executeLayer(layer, context);
+                MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results());
+                results.addAll(merge.results());
+                context = merge.patch().applyTo(context);
 
                 if (control.isCancelled()) {
-                    return new DefaultPipelineResult(
-                            PipelineStatus.CANCELLED, context, results,
+                    return partialResult(
+                            PipelineStatus.CANCELLED,
                             new CancellationException("Pipeline execution was cancelled")
                     );
                 }
 
-                if (shouldStop(layer, layerResults)) {
-                    boolean timedOut = layerResults.stream()
-                            .anyMatch(result -> result.status() == StageStatus.TIMED_OUT
-                                    && failurePolicyFor(layer, result.stageId()) == FailurePolicy.FAIL_FAST);
-                    return new DefaultPipelineResult(
-                            timedOut ? PipelineStatus.TIMED_OUT : PipelineStatus.FAILED,
-                            context,
-                            results,
-                            firstFailure(layerResults)
-                    );
+                StageResult trigger = layerOutcome.trigger();
+                if (trigger != null) {
+                    PipelineStatus status = trigger.status() == StageStatus.TIMED_OUT
+                            ? PipelineStatus.TIMED_OUT : PipelineStatus.FAILED;
+                    return partialResult(status, trigger.failure().orElse(null));
+                }
+                if (merge.conflict() != null) {
+                    return partialResult(PipelineStatus.FAILED, merge.conflict());
                 }
             }
 
-            return new DefaultPipelineResult(PipelineStatus.COMPLETED, context, results, null);
+            return partialResult(PipelineStatus.COMPLETED, null);
         } catch (CancellationException e) {
-            return new DefaultPipelineResult(PipelineStatus.CANCELLED, context, results, e);
-        } catch (ContextMergeException e) {
-            return new DefaultPipelineResult(PipelineStatus.FAILED, context, results, e);
+            return partialResult(PipelineStatus.CANCELLED, e);
         }
     }
 
-    private List<StageResult> executeLayer(LayerDefinition layer, ContextView context) {
+    /** Result built from whatever progress has been made so far. */
+    DefaultPipelineResult partialResult(PipelineStatus status, Throwable failure) {
+        ContextView current = context;
+        if (current == null) {
+            throw new IllegalStateException("Execution has not started");
+        }
+        return new DefaultPipelineResult(status, current, results, failure);
+    }
+
+    private LayerOutcome executeLayer(LayerDefinition layer, ContextView context) {
         if (layer.type() == LayerDefinition.Type.SEQUENTIAL) {
             StageNode stage = layer.stages().getFirst();
-            if (!hasRequiredInputs(stage, context)) {
-                return List.of(blocked(stage));
-            }
-            return List.of(executeStage(stage, context));
+            StageResult result = hasRequiredInputs(stage, context)
+                    ? executeStage(stage, context)
+                    : blocked(stage);
+            return new LayerOutcome(List.of(result), stopsPipeline(stage, result) ? result : null);
         }
         return executeParallel(layer.stages(), context);
     }
 
-    private List<StageResult> executeParallel(List<StageNode> stages, ContextView context) {
-        List<TrackedTask<StageExecution>> tasks = new ArrayList<>(stages.size());
-        List<StageResult> results = new ArrayList<>(stages.size());
+    private LayerOutcome executeParallel(List<StageNode> stages, ContextView context) {
+        int size = stages.size();
+        @SuppressWarnings("unchecked")
+        TrackedTask<StageExecution>[] tasks = new TrackedTask[size];
+        StageResult[] layerResults = new StageResult[size];
+        LinkedBlockingQueue<Integer> finished = new LinkedBlockingQueue<>();
+        int pending = 0;
 
         // Submit all runnable siblings before observing any result.
-        for (StageNode stage : stages) {
+        for (int i = 0; i < size; i++) {
+            StageNode stage = stages.get(i);
             if (control.isCancelled()) {
-                tasks.add(null);
-                results.add(cancelledBeforeStart(stage));
+                layerResults[i] = cancelledBeforeStart(stage);
             } else if (!hasRequiredInputs(stage, context)) {
-                tasks.add(null);
-                results.add(blocked(stage));
+                layerResults[i] = blocked(stage);
             } else {
                 try {
                     TrackedTask<StageExecution> task = submitStage(stage, context);
-                    tasks.add(task);
-                    results.add(null);
-                } catch (java.util.concurrent.RejectedExecutionException rejected) {
+                    tasks[i] = task;
+                    int index = i;
+                    task.onDone(() -> finished.add(index));
+                    pending++;
+                } catch (RejectedExecutionException rejected) {
                     if (!control.isCancelled()) {
                         throw rejected;
                     }
-                    tasks.add(null);
-                    results.add(cancelledBeforeStart(stage));
+                    layerResults[i] = cancelledBeforeStart(stage);
                 }
             }
         }
 
-        // Join in definition order. A timeout/cancel completes logically even
-        // when the worker is still physically running.
-        for (int i = 0; i < stages.size(); i++) {
-            TrackedTask<StageExecution> task = tasks.get(i);
-            if (task != null) {
-                results.set(i, awaitStage(stages.get(i), task));
+        // Observe stages in completion order so a FAIL_FAST failure can cancel
+        // siblings immediately. Results are stored at their definition index.
+        // A timeout/cancel completes logically even when the worker is still running.
+        StageResult trigger = null;
+        try {
+            while (pending > 0) {
+                int i = finished.take();
+                pending--;
+                StageResult result = awaitStage(stages.get(i), tasks[i]);
+                layerResults[i] = result;
+                if (trigger == null && stopsPipeline(stages.get(i), result)) {
+                    trigger = result;
+                    cancelUnfinished(tasks, layerResults);
+                }
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            control.cancel();
+            for (int i = 0; i < size; i++) {
+                if (layerResults[i] == null) {
+                    layerResults[i] = awaitStage(stages.get(i), tasks[i]);
+                }
             }
         }
-        return List.copyOf(results);
+        return new LayerOutcome(List.of(layerResults), trigger);
+    }
+
+    private static void cancelUnfinished(TrackedTask<?>[] tasks, StageResult[] layerResults) {
+        for (int i = 0; i < tasks.length; i++) {
+            if (tasks[i] != null && layerResults[i] == null) {
+                tasks[i].cancel();
+            }
+        }
     }
 
     private StageResult executeStage(StageNode node, ContextView context) {
@@ -141,7 +188,7 @@ final class ExecutionEngine {
         try {
             TrackedTask<StageExecution> task = submitStage(node, context);
             return awaitStage(node, task);
-        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+        } catch (RejectedExecutionException rejected) {
             if (control.isCancelled()) {
                 return cancelledBeforeStart(node);
             }
@@ -172,15 +219,22 @@ final class ExecutionEngine {
             DefaultStageTasks childTasks
     ) throws Exception {
         long started = System.nanoTime();
-        try (childTasks) {
+        ContextPatch patch;
+        try {
             control.throwIfCancelled();
             Stage stage = node.stage();
-            ContextPatch patch = Objects.requireNonNull(
+            patch = Objects.requireNonNull(
                     stage.execute(new DefaultStageContext(context, childTasks)),
                     "Stage returned a null ContextPatch: " + node.id()
             );
-            return new StageExecution(patch, elapsed(started));
+        } catch (Throwable failure) {
+            // The stage's own failure wins; children are only cancelled.
+            childTasks.close();
+            throw failure;
         }
+        // Normal return: an unobserved child failure fails the stage.
+        childTasks.closeAndVerify();
+        return new StageExecution(patch, elapsed(started));
     }
 
     private StageResult awaitStage(StageNode node, TrackedTask<StageExecution> task) {
@@ -228,36 +282,70 @@ final class ExecutionEngine {
         return context.keys().containsAll(node.stage().requiredReads());
     }
 
-    private ContextPatch mergeSuccessfulOutputs(List<StageResult> results) {
-        List<ContextPatch> patches = results.stream()
-                .filter(result -> result.status() == StageStatus.SUCCEEDED)
-                .flatMap(result -> result.output().stream())
-                .toList();
-        return ContextPatch.merge(patches);
-    }
+    /**
+     * Merges the outputs of a layer's successful stages. Stages that wrote a key
+     * another stage in the same layer also wrote are marked FAILED with a
+     * {@link ContextMergeException}; their output is kept for diagnosis but not
+     * applied. Outputs of non-conflicting stages are applied.
+     */
+    private MergeOutcome mergeSuccessfulOutputs(List<StageResult> layerResults) {
+        Map<ContextKey<?>, List<String>> writers = new LinkedHashMap<>();
+        for (StageResult result : layerResults) {
+            if (result.status() != StageStatus.SUCCEEDED) {
+                continue;
+            }
+            result.output().ifPresent(patch -> patch.writtenKeys().forEach(key ->
+                    writers.computeIfAbsent(key, ignored -> new ArrayList<>()).add(result.stageId())));
+        }
 
-    private boolean shouldStop(LayerDefinition layer, List<StageResult> results) {
-        for (int i = 0; i < results.size(); i++) {
-            StageStatus status = results.get(i).status();
-            boolean unsuccessful = status == StageStatus.FAILED
-                    || status == StageStatus.TIMED_OUT;
-            if (unsuccessful && layer.stages().get(i).options().failurePolicy() == FailurePolicy.FAIL_FAST) {
-                return true;
+        Map<String, Set<ContextKey<?>>> conflictsByStage = new LinkedHashMap<>();
+        writers.forEach((key, stageIds) -> {
+            if (stageIds.size() > 1) {
+                stageIds.forEach(id ->
+                        conflictsByStage.computeIfAbsent(id, ignored -> new LinkedHashSet<>()).add(key));
+            }
+        });
+
+        List<StageResult> adjusted = new ArrayList<>(layerResults.size());
+        List<ContextPatch> applied = new ArrayList<>();
+        ContextMergeException firstConflict = null;
+        for (StageResult result : layerResults) {
+            Set<ContextKey<?>> conflictingKeys = conflictsByStage.get(result.stageId());
+            if (conflictingKeys != null) {
+                ContextMergeException conflict = new ContextMergeException(
+                        conflictMessage(result.stageId(), conflictingKeys, writers));
+                if (firstConflict == null) {
+                    firstConflict = conflict;
+                }
+                adjusted.add(new DefaultStageResult(
+                        result.stageId(), StageStatus.FAILED, result.duration(), conflict,
+                        result.output().orElse(null), result.workerTermination(), result.children()
+                ));
+            } else {
+                adjusted.add(result);
+                if (result.status() == StageStatus.SUCCEEDED) {
+                    result.output().ifPresent(applied::add);
+                }
             }
         }
-        return false;
+        return new MergeOutcome(adjusted, ContextPatch.merge(applied), firstConflict);
     }
 
-    private FailurePolicy failurePolicyFor(LayerDefinition layer, String stageId) {
-        return layer.stages().stream()
-                .filter(stage -> stage.id().equals(stageId))
-                .findFirst()
-                .map(stage -> stage.options().failurePolicy())
-                .orElse(FailurePolicy.FAIL_FAST);
+    private static String conflictMessage(
+            String stageId,
+            Set<ContextKey<?>> keys,
+            Map<ContextKey<?>, List<String>> writers
+    ) {
+        return "Stage '" + stageId + "' wrote context keys also written in the same layer: "
+                + keys.stream()
+                .map(key -> key.name() + " (written by " + writers.get(key) + ")")
+                .collect(Collectors.joining(", "));
     }
 
-    private Throwable firstFailure(List<StageResult> results) {
-        return results.stream().flatMap(result -> result.failure().stream()).findFirst().orElse(null);
+    private static boolean stopsPipeline(StageNode node, StageResult result) {
+        boolean unsuccessful = result.status() == StageStatus.FAILED
+                || result.status() == StageStatus.TIMED_OUT;
+        return unsuccessful && node.options().failurePolicy() == FailurePolicy.FAIL_FAST;
     }
 
     private StageResult blocked(StageNode node) {
@@ -276,4 +364,13 @@ final class ExecutionEngine {
     }
 
     private record StageExecution(ContextPatch patch, Duration duration) { }
+
+    /** A layer's results in definition order, and the FAIL_FAST result that stops the run, if any. */
+    private record LayerOutcome(List<StageResult> results, StageResult trigger) { }
+
+    private record MergeOutcome(
+            List<StageResult> results,
+            ContextPatch patch,
+            ContextMergeException conflict
+    ) { }
 }

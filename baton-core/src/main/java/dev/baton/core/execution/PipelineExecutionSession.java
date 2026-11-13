@@ -15,7 +15,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class PipelineExecutionSession implements PipelineRun {
@@ -23,16 +22,18 @@ public final class PipelineExecutionSession implements PipelineRun {
     private final PipelineDefinition definition;
     private final ContextView input;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-    private final DeadlineScheduler deadlines = new DeadlineScheduler();
+    private final DeadlineScheduler deadlines = DeadlineScheduler.shared();
     private final ExecutionControl control = new ExecutionControl();
     private final CompletableFuture<PipelineResult> completion = new CompletableFuture<>();
     private final AtomicReference<PipelineRunStatus> status =
             new AtomicReference<>(PipelineRunStatus.CREATED);
     private final Object completionLock = new Object();
+    private final ExecutionEngine engine;
 
     public PipelineExecutionSession(PipelineDefinition definition, ContextView input) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.input = Objects.requireNonNull(input, "input");
+        this.engine = new ExecutionEngine(definition, executor, deadlines, control);
     }
 
     public PipelineResult executeSync() throws InterruptedException {
@@ -64,7 +65,7 @@ public final class PipelineExecutionSession implements PipelineRun {
                 control.abort();
                 PipelineStatus pipelineStatus = cancelled
                         ? PipelineStatus.CANCELLED : PipelineStatus.FAILED;
-                complete(new DefaultPipelineResult(pipelineStatus, input, List.of(), failure));
+                complete(partialResult(pipelineStatus, failure));
             } finally {
                 shutdownResources();
             }
@@ -72,7 +73,16 @@ public final class PipelineExecutionSession implements PipelineRun {
     }
 
     private PipelineResult executeEngine() {
-        return new ExecutionEngine(definition, executor, deadlines, control).execute(input);
+        return engine.execute(input);
+    }
+
+    /** Keeps the stages and context reached before an unexpected engine failure. */
+    private PipelineResult partialResult(PipelineStatus pipelineStatus, Throwable failure) {
+        try {
+            return engine.partialResult(pipelineStatus, failure);
+        } catch (IllegalStateException notStarted) {
+            return new DefaultPipelineResult(pipelineStatus, input, List.of(), failure);
+        }
     }
 
     private void complete(PipelineResult result) {
@@ -101,18 +111,12 @@ public final class PipelineExecutionSession implements PipelineRun {
         }
     }
 
+    /** Releases the run's executor without waiting for workers to exit. */
     private void shutdownResources() {
         if (control.isCancelled()) {
             executor.shutdownNow();
         } else {
             executor.shutdown();
-        }
-        deadlines.close();
-        try {
-            executor.awaitTermination(1, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
         }
     }
 

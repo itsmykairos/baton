@@ -45,6 +45,11 @@ public final class ContextPatch {
                 : Optional.empty();
     }
 
+    /**
+     * Returns {@code base} with this patch's writes applied. Written keys replace
+     * existing values: a later layer may overwrite a value written by an earlier
+     * layer or supplied in the pipeline input.
+     */
     public ContextView applyTo(ContextView base) {
         Objects.requireNonNull(base, "base");
 
@@ -57,6 +62,9 @@ public final class ContextPatch {
     /**
      * Merges patches.
      * Duplicate keys are conflicts, even when values are equal.
+     *
+     * <p>The engine uses this for the stages of one parallel layer only; conflicts
+     * are never detected across layers (see {@link #applyTo(ContextView)}).</p>
      */
     public static ContextPatch merge(
             Collection<ContextPatch> patches

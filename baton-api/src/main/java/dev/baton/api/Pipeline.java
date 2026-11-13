@@ -19,36 +19,13 @@ public interface Pipeline {
     /**
      * Adapts this pipeline as a regular stage.
      *
-     * Baton Core recognizes NestedPipelineStage and executes
-     * the child within the parent's execution scope.
+     * <p>Baton Core runs a core pipeline adapted this way inside the parent run,
+     * inheriting its executor, deadline and cancellation; see
+     * {@link NestedPipelineStage} for the outcome rules.</p>
      */
     default Stage asStage() {
         return new NestedPipelineStage(this);
     }
-
-//    /**
-//     * Adapts this pipeline as a regular stage.
-//     *
-//     * The child receives the parent's current context snapshot.
-//     * Its changed and newly added values are returned as a patch.
-//     */
-//    default Stage asStage() {
-//        return stageContext -> {
-//
-//            ContextView before = stageContext.context();
-//
-//            PipelineResult childResult = run(before);
-//
-//            if (!childResult.isSuccessful()) {
-//                throw new PipelineExecutionException(childResult);
-//            }
-//
-//            return ContextPatch.diff(
-//                    before,
-//                    childResult.context()
-//            );
-//        };
-//    }
 
     static Builder builder() {
         return PipelineProvider.load().builder();

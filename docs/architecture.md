@@ -38,8 +38,13 @@ the library modules.
 - Child pipelines are ordinary pipelines composed by a parent stage. They have their own
   layers, inherit the parent's absolute deadline, and propagate cancellation to active
   descendants.
-  *(Pending: today `Pipeline.asStage()` runs the child as an ordinary stage via
-  `pipeline.run()`, with its own executor and no inherited deadline.)*
+  The engine runs a core pipeline adapted with `Pipeline.asStage()` on the parent's
+  executor with its own execution control: each child stage's deadline is capped by the
+  nested stage's deadline, and cancelling the nested stage cancels the child control,
+  which cascades to descendants. A COMPLETED child makes the nested stage SUCCEEDED and
+  hands back every key it wrote; child stage results appear in `StageResult.children()`,
+  and `isSuccessful()` / `hasFailures()` check them recursively. Other `Pipeline`
+  implementations fall back to `NestedPipelineStage.execute()`.
 - Context snapshots are immutable. A stage returns one patch for the pipeline to merge.
   Writes to the same key by two stages of one parallel layer are a conflict: those stages
   are FAILED and their patches are not applied. Across layers, later writes overwrite

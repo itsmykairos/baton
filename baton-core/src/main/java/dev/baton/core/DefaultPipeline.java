@@ -20,7 +20,8 @@ public final class DefaultPipeline implements Pipeline {
         );
     }
 
-    PipelineDefinition definition() {
+    /** The immutable definition; used by the engine to run this pipeline nested in another. */
+    public PipelineDefinition definition() {
         return definition;
     }
 

@@ -5,11 +5,14 @@ import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.FailurePolicy;
+import dev.baton.api.NestedPipelineStage;
+import dev.baton.api.PipelineExecutionException;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.Stage;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
+import dev.baton.core.DefaultPipeline;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.LayerDefinition;
@@ -27,15 +30,26 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * Runs one pipeline execution. Progress (the current context and the stage
- * results so far) is kept in fields so a caller can report partial results
- * if execution ends unexpectedly.
+ * Runs one pipeline execution, top-level or nested.
+ *
+ * <p>Progress (the current context, finished stage results, the layer in flight
+ * and the keys written so far) is guarded by {@link #state}, so other threads can
+ * take a {@link #snapshot()} or a {@link #partialResult partial result} while the
+ * engine runs.</p>
+ *
+ * <p>A stage that wraps a core {@link DefaultPipeline} via
+ * {@link NestedPipelineStage} is run by a child engine on the same executor and
+ * deadline scheduler, with its own {@link ExecutionControl}. The child inherits
+ * the nested stage's deadline, and cancelling the nested stage cancels the child
+ * control, which cascades to every descendant.</p>
  */
 final class ExecutionEngine {
 
@@ -43,9 +57,16 @@ final class ExecutionEngine {
     private final ExecutorService executor;
     private final DeadlineScheduler deadlines;
     private final ExecutionControl control;
+    private final Deadline inherited;
 
+    private final Object state = new Object();
     private ContextView context;
     private final List<StageResult> results = new ArrayList<>();
+    private final Set<ContextKey<?>> writtenKeys = new LinkedHashSet<>();
+    private ActiveLayer activeLayer;
+
+    /** Child engines of nested stages, so their results can be reported as children. */
+    private final Map<TrackedTask<?>, ExecutionEngine> childEngines = new ConcurrentHashMap<>();
 
     ExecutionEngine(
             PipelineDefinition definition,
@@ -53,23 +74,41 @@ final class ExecutionEngine {
             DeadlineScheduler deadlines,
             ExecutionControl control
     ) {
+        this(definition, executor, deadlines, control, Deadline.unlimited());
+    }
+
+    ExecutionEngine(
+            PipelineDefinition definition,
+            ExecutorService executor,
+            DeadlineScheduler deadlines,
+            ExecutionControl control,
+            Deadline inherited
+    ) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
         this.control = Objects.requireNonNull(control, "control");
+        this.inherited = Objects.requireNonNull(inherited, "inherited");
     }
 
     DefaultPipelineResult execute(ContextView input) {
-        context = Objects.requireNonNull(input, "input");
+        Objects.requireNonNull(input, "input");
+        synchronized (state) {
+            context = input;
+        }
 
         try {
             for (LayerDefinition layer : definition.layers()) {
                 control.throwIfCancelled();
 
-                LayerOutcome layerOutcome = executeLayer(layer, context);
+                LayerOutcome layerOutcome = executeLayer(layer, currentContext());
                 MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results());
-                results.addAll(merge.results());
-                context = merge.patch().applyTo(context);
+                synchronized (state) {
+                    results.addAll(merge.results());
+                    context = merge.patch().applyTo(context);
+                    writtenKeys.addAll(merge.patch().writtenKeys());
+                    activeLayer = null;
+                }
 
                 if (control.isCancelled()) {
                     return partialResult(
@@ -97,51 +136,93 @@ final class ExecutionEngine {
 
     /** Result built from whatever progress has been made so far. */
     DefaultPipelineResult partialResult(PipelineStatus status, Throwable failure) {
-        ContextView current = context;
-        if (current == null) {
-            throw new IllegalStateException("Execution has not started");
+        synchronized (state) {
+            if (context == null) {
+                throw new IllegalStateException("Execution has not started");
+            }
+            return new DefaultPipelineResult(status, context, snapshot(), failure);
         }
-        return new DefaultPipelineResult(status, current, results, failure);
+    }
+
+    /**
+     * Stage results so far, in definition order: finished layers plus every stage
+     * of the layer in flight whose outcome is already known. Never blocks on a
+     * running stage. Stages of layers not yet reached are omitted.
+     */
+    List<StageResult> snapshot() {
+        synchronized (state) {
+            List<StageResult> snapshot = new ArrayList<>(results);
+            ActiveLayer layer = activeLayer;
+            if (layer != null) {
+                for (int i = 0; i < layer.stages().size(); i++) {
+                    StageResult known = layer.results()[i];
+                    TrackedTask<StageExecution> task = layer.tasks()[i];
+                    if (known != null) {
+                        snapshot.add(known);
+                    } else if (task != null && task.isDone()) {
+                        snapshot.add(outcomeOfDone(layer.stages().get(i), task));
+                    }
+                }
+            }
+            return snapshot;
+        }
+    }
+
+    /**
+     * The patch a nested run hands to its parent: every key written by an applied
+     * patch, with its final value. Unlike a before/after diff, a rewrite with an
+     * equal value still counts as a write.
+     */
+    ContextPatch writtenPatch() {
+        synchronized (state) {
+            ContextPatch.Builder builder = ContextPatch.builder();
+            for (ContextKey<?> key : writtenKeys) {
+                putUntyped(builder, key, context);
+            }
+            return builder.build();
+        }
+    }
+
+    private ContextView currentContext() {
+        synchronized (state) {
+            return context;
+        }
     }
 
     private LayerOutcome executeLayer(LayerDefinition layer, ContextView context) {
-        if (layer.type() == LayerDefinition.Type.SEQUENTIAL) {
-            StageNode stage = layer.stages().getFirst();
-            StageResult result = hasRequiredInputs(stage, context)
-                    ? executeStage(stage, context)
-                    : blocked(stage);
-            return new LayerOutcome(List.of(result), stopsPipeline(stage, result) ? result : null);
-        }
-        return executeParallel(layer.stages(), context);
-    }
-
-    private LayerOutcome executeParallel(List<StageNode> stages, ContextView context) {
+        List<StageNode> stages = layer.stages();
         int size = stages.size();
         @SuppressWarnings("unchecked")
         TrackedTask<StageExecution>[] tasks = new TrackedTask[size];
         StageResult[] layerResults = new StageResult[size];
+        synchronized (state) {
+            activeLayer = new ActiveLayer(stages, tasks, layerResults);
+        }
         LinkedBlockingQueue<Integer> finished = new LinkedBlockingQueue<>();
         int pending = 0;
 
-        // Submit all runnable siblings before observing any result.
+        // Submit all runnable stages before observing any result.
         for (int i = 0; i < size; i++) {
             StageNode stage = stages.get(i);
             if (control.isCancelled()) {
-                layerResults[i] = cancelledBeforeStart(stage);
+                record(layerResults, i, cancelledBeforeStart(stage));
             } else if (!hasRequiredInputs(stage, context)) {
-                layerResults[i] = blocked(stage);
+                record(layerResults, i, blocked(stage));
             } else {
                 try {
-                    TrackedTask<StageExecution> task = submitStage(stage, context);
-                    tasks[i] = task;
                     int index = i;
+                    TrackedTask<StageExecution> task = submitStage(stage, context, registered -> {
+                        synchronized (state) {
+                            tasks[index] = registered;
+                        }
+                    });
                     task.onDone(() -> finished.add(index));
                     pending++;
                 } catch (RejectedExecutionException rejected) {
                     if (!control.isCancelled()) {
                         throw rejected;
                     }
-                    layerResults[i] = cancelledBeforeStart(stage);
+                    record(layerResults, i, cancelledBeforeStart(stage));
                 }
             }
         }
@@ -155,60 +236,84 @@ final class ExecutionEngine {
                 int i = finished.take();
                 pending--;
                 StageResult result = awaitStage(stages.get(i), tasks[i]);
-                layerResults[i] = result;
+                record(layerResults, i, result);
                 if (trigger == null && stopsPipeline(stages.get(i), result)) {
                     trigger = result;
                     cancelUnfinished(tasks, layerResults);
                 }
             }
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
+            // Every registered task is logically complete once cancel() returns, so
+            // waiting for their outcomes is immediate; do it without the interrupt flag
+            // so real outcomes (such as TIMED_OUT) are not replaced by CANCELLED.
             control.cancel();
             for (int i = 0; i < size; i++) {
                 if (layerResults[i] == null) {
-                    layerResults[i] = awaitStage(stages.get(i), tasks[i]);
+                    record(layerResults, i, awaitCancelledStage(stages.get(i), tasks[i]));
                 }
             }
+            Thread.currentThread().interrupt();
         }
         return new LayerOutcome(List.of(layerResults), trigger);
     }
 
-    private static void cancelUnfinished(TrackedTask<?>[] tasks, StageResult[] layerResults) {
-        for (int i = 0; i < tasks.length; i++) {
-            if (tasks[i] != null && layerResults[i] == null) {
-                tasks[i].cancel();
-            }
+    private void record(StageResult[] layerResults, int index, StageResult result) {
+        synchronized (state) {
+            layerResults[index] = result;
         }
     }
 
-    private StageResult executeStage(StageNode node, ContextView context) {
-        if (control.isCancelled()) {
-            return cancelledBeforeStart(node);
-        }
-        try {
-            TrackedTask<StageExecution> task = submitStage(node, context);
-            return awaitStage(node, task);
-        } catch (RejectedExecutionException rejected) {
-            if (control.isCancelled()) {
-                return cancelledBeforeStart(node);
+    private void cancelUnfinished(TrackedTask<?>[] tasks, StageResult[] layerResults) {
+        List<TrackedTask<?>> unfinished = new ArrayList<>();
+        synchronized (state) {
+            for (int i = 0; i < tasks.length; i++) {
+                if (tasks[i] != null && layerResults[i] == null) {
+                    unfinished.add(tasks[i]);
+                }
             }
-            throw rejected;
         }
+        // Never cancel (which may cascade into child engines) under the state lock.
+        unfinished.forEach(TrackedTask::cancel);
     }
 
-    private TrackedTask<StageExecution> submitStage(StageNode node, ContextView context) {
+    private TrackedTask<StageExecution> submitStage(
+            StageNode node,
+            ContextView context,
+            Consumer<TrackedTask<StageExecution>> register
+    ) {
         Deadline deadline = node.options().timeout()
                 .map(Deadline::after)
-                .orElseGet(Deadline::unlimited);
+                .map(inherited::min)
+                .orElse(inherited);
 
-        DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines);
-        TrackedTask<StageExecution> task = TrackedTask.submit(
-                executor,
-                deadline,
-                deadlines,
-                () -> executeStageBody(node, context, childTasks),
-                childTasks::close
-        );
+        TrackedTask<StageExecution> task;
+        if (node.stage() instanceof NestedPipelineStage nested
+                && nested.pipeline() instanceof DefaultPipeline child) {
+            ExecutionControl childControl = new ExecutionControl();
+            ExecutionEngine childEngine = new ExecutionEngine(
+                    child.definition(), executor, deadlines, childControl, deadline);
+            task = TrackedTask.submit(
+                    executor,
+                    deadline,
+                    deadlines,
+                    () -> executeNestedBody(childEngine, context),
+                    childControl::cancel,
+                    registered -> {
+                        childEngines.put(registered, childEngine);
+                        register.accept(registered);
+                    }
+            );
+        } else {
+            DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines);
+            task = TrackedTask.submit(
+                    executor,
+                    deadline,
+                    deadlines,
+                    () -> executeStageBody(node, context, childTasks),
+                    childTasks::close,
+                    register
+            );
+        }
         control.track(task);
         return task;
     }
@@ -237,45 +342,107 @@ final class ExecutionEngine {
         return new StageExecution(patch, elapsed(started));
     }
 
+    /**
+     * Runs a nested pipeline in this run's scope. A COMPLETED child succeeds and
+     * hands back everything it wrote, even if some of its own stages were blocked
+     * or failed under CONTINUE; those show up in the nested stage's children.
+     */
+    private StageExecution executeNestedBody(ExecutionEngine childEngine, ContextView context)
+            throws Exception {
+        long started = System.nanoTime();
+        control.throwIfCancelled();
+        DefaultPipelineResult childResult = childEngine.execute(context);
+        return switch (childResult.status()) {
+            case COMPLETED -> new StageExecution(childEngine.writtenPatch(), elapsed(started));
+            case CANCELLED -> throw new CancellationException("Nested pipeline was cancelled");
+            case FAILED, TIMED_OUT -> throw new PipelineExecutionException(childResult);
+        };
+    }
+
+    /** Waits for a stage's logical outcome, then stops tracking it. */
     private StageResult awaitStage(StageNode node, TrackedTask<StageExecution> task) {
         try {
-            StageExecution execution = task.join();
-            return new DefaultStageResult(
-                    node.id(), StageStatus.SUCCEEDED, execution.duration(), null,
-                    execution.patch(), task.workerTermination(), List.of()
-            );
-        } catch (TrackedTask.DeadlineExceededException e) {
-            return new DefaultStageResult(
-                    node.id(), StageStatus.TIMED_OUT, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), List.of()
-            );
-        } catch (CancellationException e) {
-            return new DefaultStageResult(
-                    node.id(), StageStatus.CANCELLED, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), List.of()
-            );
+            return outcomeOf(node, task);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             control.cancel();
             return new DefaultStageResult(
                     node.id(), StageStatus.CANCELLED, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), List.of()
-            );
-        } catch (TrackedTask.TaskExecutionException e) {
-            StageStatus status = e.getCause() instanceof InterruptedException
-                    ? StageStatus.CANCELLED : StageStatus.FAILED;
-            return new DefaultStageResult(
-                    node.id(), status, Duration.ofNanos(task.elapsedNanos()),
-                    e.getCause(), null, task.workerTermination(), List.of()
-            );
-        } catch (Throwable e) {
-            return new DefaultStageResult(
-                    node.id(), StageStatus.FAILED, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), List.of()
+                    e, null, task.workerTermination(), childrenOf(task)
             );
         } finally {
             control.untrack(task);
         }
+    }
+
+    /** Waits for an already-cancelled task's outcome, ignoring interrupts meanwhile. */
+    private StageResult awaitCancelledStage(StageNode node, TrackedTask<StageExecution> task) {
+        boolean interrupted = false;
+        try {
+            while (true) {
+                try {
+                    return outcomeOf(node, task);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            control.untrack(task);
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /** Maps a finished task's outcome without side effects; never blocks. */
+    private StageResult outcomeOfDone(StageNode node, TrackedTask<StageExecution> task) {
+        try {
+            return outcomeOf(node, task);
+        } catch (InterruptedException impossible) {
+            // join() on a completed outcome does not wait, so it cannot be interrupted.
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    private StageResult outcomeOf(StageNode node, TrackedTask<StageExecution> task)
+            throws InterruptedException {
+        try {
+            StageExecution execution = task.join();
+            return new DefaultStageResult(
+                    node.id(), StageStatus.SUCCEEDED, execution.duration(), null,
+                    execution.patch(), task.workerTermination(), childrenOf(task)
+            );
+        } catch (TrackedTask.DeadlineExceededException e) {
+            return unsuccessful(node, task, StageStatus.TIMED_OUT, e);
+        } catch (CancellationException e) {
+            return unsuccessful(node, task, StageStatus.CANCELLED, e);
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (TrackedTask.TaskExecutionException e) {
+            StageStatus status = e.getCause() instanceof InterruptedException
+                    ? StageStatus.CANCELLED : StageStatus.FAILED;
+            return unsuccessful(node, task, status, e.getCause());
+        } catch (Throwable e) {
+            return unsuccessful(node, task, StageStatus.FAILED, e);
+        }
+    }
+
+    private StageResult unsuccessful(
+            StageNode node,
+            TrackedTask<StageExecution> task,
+            StageStatus status,
+            Throwable failure
+    ) {
+        return new DefaultStageResult(
+                node.id(), status, Duration.ofNanos(task.elapsedNanos()),
+                failure, null, task.workerTermination(), childrenOf(task)
+        );
+    }
+
+    private List<StageResult> childrenOf(TrackedTask<?> task) {
+        ExecutionEngine child = childEngines.get(task);
+        return child == null ? List.of() : child.snapshot();
     }
 
     private boolean hasRequiredInputs(StageNode node, ContextView context) {
@@ -348,6 +515,12 @@ final class ExecutionEngine {
         return unsuccessful && node.options().failurePolicy() == FailurePolicy.FAIL_FAST;
     }
 
+    @SuppressWarnings("unchecked")
+    private static void putUntyped(ContextPatch.Builder builder, ContextKey<?> key, ContextView view) {
+        ContextKey<Object> untyped = (ContextKey<Object>) key;
+        builder.put(untyped, view.get(untyped));
+    }
+
     private StageResult blocked(StageNode node) {
         return new DefaultStageResult(node.id(), StageStatus.BLOCKED, Duration.ZERO,
                 null, null, WorkerTermination.NOT_STARTED, List.of());
@@ -367,6 +540,13 @@ final class ExecutionEngine {
 
     /** A layer's results in definition order, and the FAIL_FAST result that stops the run, if any. */
     private record LayerOutcome(List<StageResult> results, StageResult trigger) { }
+
+    /** The layer in flight; its arrays are only read or written under {@link #state}. */
+    private record ActiveLayer(
+            List<StageNode> stages,
+            TrackedTask<StageExecution>[] tasks,
+            StageResult[] results
+    ) { }
 
     private record MergeOutcome(
             List<StageResult> results,

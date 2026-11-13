@@ -25,11 +25,14 @@ public interface PipelineResult {
      * <p>A run can end {@link PipelineStatus#COMPLETED} and still be unsuccessful:
      * BLOCKED stages and stages that failed under {@link FailurePolicy#CONTINUE}
      * do not stop the run.</p>
+     *
+     * <p>Nested stages are checked recursively through {@link StageResult#children()}.</p>
      */
     boolean isSuccessful();
 
     /**
-     * True if at least one stage failed or timed out.
+     * True if at least one stage failed or timed out, including stages of
+     * nested pipelines reported through {@link StageResult#children()}.
      */
     boolean hasFailures();
 

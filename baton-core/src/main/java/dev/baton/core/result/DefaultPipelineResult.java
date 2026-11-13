@@ -25,16 +25,25 @@ public record DefaultPipelineResult(
 
     @Override
     public boolean isSuccessful() {
-        return status == PipelineStatus.COMPLETED
-                && stages.stream().allMatch(stage ->
-                        stage.status() == StageStatus.SUCCEEDED);
+        return status == PipelineStatus.COMPLETED && allSucceeded(stages);
     }
 
     @Override
     public boolean hasFailures() {
+        return anyFailed(stages);
+    }
+
+    /** Checks nested children too: a successful nested stage may contain failed stages. */
+    private static boolean allSucceeded(List<StageResult> stages) {
+        return stages.stream().allMatch(stage ->
+                stage.status() == StageStatus.SUCCEEDED && allSucceeded(stage.children()));
+    }
+
+    private static boolean anyFailed(List<StageResult> stages) {
         return stages.stream().anyMatch(stage ->
                 stage.status() == StageStatus.FAILED
-                        || stage.status() == StageStatus.TIMED_OUT);
+                        || stage.status() == StageStatus.TIMED_OUT
+                        || anyFailed(stage.children()));
     }
 
     @Override

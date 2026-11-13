@@ -11,19 +11,24 @@ final class ExecutionControl {
     private final Set<TrackedTask<?>> activeTasks = new HashSet<>();
     private boolean cancelled;
 
+    /**
+     * Cancels the run and every registered task. Returns true only for the first call,
+     * but every call cancels the registered tasks before returning (task cancellation
+     * is idempotent), so no caller returns while a concurrent first call is still
+     * cancelling.
+     */
     boolean cancel() {
+        boolean first;
         Set<TrackedTask<?>> snapshot;
         synchronized (lock) {
-            if (cancelled) {
-                return false;
-            }
+            first = !cancelled;
             cancelled = true;
             snapshot = Set.copyOf(activeTasks);
         }
         // Never invoke task cancellation (which may close child scopes) under
         // the registration lock.
         snapshot.forEach(TrackedTask::cancel);
-        return true;
+        return first;
     }
 
     void track(TrackedTask<?> task) {

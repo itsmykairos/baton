@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /** Logical task outcome and physical worker lifecycle are tracked separately. */
 final class TrackedTask<T> {
@@ -36,7 +37,8 @@ final class TrackedTask<T> {
             Deadline deadline,
             DeadlineScheduler deadlines,
             Callable<T> task,
-            Runnable cancellationAction
+            Runnable cancellationAction,
+            Consumer<TrackedTask<T>> beforeStart
     ) {
         Objects.requireNonNull(executor, "executor");
         this.deadline = Objects.requireNonNull(deadline, "deadline");
@@ -44,6 +46,9 @@ final class TrackedTask<T> {
         Objects.requireNonNull(task, "task");
         this.cancellationAction = Objects.requireNonNull(cancellationAction, "cancellationAction");
 
+        // Lets the owner register this task before it can start, time out or complete,
+        // so observers never miss it. The callback must not cancel the task.
+        beforeStart.accept(this);
         deadlineRegistration = deadlines.schedule(deadline, this::expire);
         try {
             submitted = executor.submit(() -> {
@@ -109,7 +114,21 @@ final class TrackedTask<T> {
             Callable<T> task,
             Runnable cancellationAction
     ) {
-        return new TrackedTask<>(executor, deadline, deadlines, task, cancellationAction);
+        return submit(executor, deadline, deadlines, task, cancellationAction, ignored -> { });
+    }
+
+    /** As {@link #submit(ExecutorService, Deadline, DeadlineScheduler, Callable, Runnable)},
+     *  calling {@code beforeStart} with the task before it is scheduled or submitted. */
+    static <T> TrackedTask<T> submit(
+            ExecutorService executor,
+            Deadline deadline,
+            DeadlineScheduler deadlines,
+            Callable<T> task,
+            Runnable cancellationAction,
+            Consumer<TrackedTask<T>> beforeStart
+    ) {
+        return new TrackedTask<>(executor, deadline, deadlines, task, cancellationAction,
+                Objects.requireNonNull(beforeStart, "beforeStart"));
     }
 
     private void complete(T value) {
@@ -170,7 +189,13 @@ final class TrackedTask<T> {
         outcome.completeExceptionally(new DeadlineExceededException("Task deadline expired"));
     }
 
+    /**
+     * Cancels the task. If its deadline has already passed (for example when an
+     * enclosing nested stage with the same deadline expires first), the outcome is
+     * a deadline expiry rather than a cancellation.
+     */
     void cancel() {
+        boolean expired;
         synchronized (completionLock) {
             if (terminal.get()) {
                 return;
@@ -178,15 +203,20 @@ final class TrackedTask<T> {
             terminal.set(true);
             logicalCompletedNanos = System.nanoTime();
             deadlineRegistration.cancel();
+            expired = deadline.isExpired();
         }
         cancelWorkerAndChildren();
-        outcome.completeExceptionally(new CancellationException("Task was cancelled"));
+        outcome.completeExceptionally(expired
+                ? new DeadlineExceededException("Task deadline expired")
+                : new CancellationException("Task was cancelled"));
     }
 
     private void cancelWorkerAndChildren() {
+        // Cancel owned work (child tasks or a nested run) before interrupting the
+        // worker, so it is logically complete before this task's outcome is published.
+        runCancellationAction();
         lifecycle.requestCancellation();
         cancelQueuedSubmission();
-        runCancellationAction();
     }
 
     private void cancelQueuedSubmission() {

@@ -1,5 +1,6 @@
 package dev.baton.api;
 
+/** Outcome of one stage in a pipeline run. */
 public enum StageStatus {
     /** The stage returned a patch, and it was applied to the context. */
     SUCCEEDED,

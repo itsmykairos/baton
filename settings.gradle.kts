@@ -18,5 +18,6 @@ include(
     "baton-api",
     "baton-core",
     "baton-testkit",
+    "baton-integration-tests",
     "baton-examples"
 )

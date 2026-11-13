@@ -37,11 +37,21 @@ public final class NestedPipelineStage implements Stage {
 
     /**
      * Returns the pipeline represented by this stage.
+     *
+     * @return the wrapped pipeline
      */
     public Pipeline pipeline() {
         return pipeline;
     }
 
+    /**
+     * Runs the child with {@link Pipeline#run(ContextView)} (standalone behaviour).
+     *
+     * @param stageContext the parent stage context; its snapshot is the child input
+     * @return every key the child wrote, with its final value
+     * @throws PipelineExecutionException if the child ended FAILED or TIMED_OUT
+     * @throws Exception if the child run was interrupted or cancelled
+     */
     @Override
     public ContextPatch execute(StageContext stageContext) throws Exception {
         PipelineResult childResult = pipeline.run(stageContext.context());

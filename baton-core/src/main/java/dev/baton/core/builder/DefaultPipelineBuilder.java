@@ -103,6 +103,9 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
     public Pipeline build() {
         ensureOpen();
 
+        if (layers.isEmpty()) {
+            throw new IllegalStateException("A pipeline must contain at least one stage");
+        }
         built = true;
 
         PipelineDefinition definition =

@@ -18,8 +18,28 @@ final class ImmutableContextView implements ContextView {
     private ImmutableContextView(
             Map<ContextKey<?>, Object> values
     ) {
+        rejectTypeClashes(values.keySet());
         this.values = Collections.unmodifiableMap(
                 new LinkedHashMap<>(values)
+        );
+    }
+
+    /** A context holds at most one type per key name. */
+    static void rejectTypeClashes(Set<ContextKey<?>> keys) {
+        Map<String, ContextKey<?>> byName = new LinkedHashMap<>();
+        for (ContextKey<?> key : keys) {
+            ContextKey<?> previous = byName.putIfAbsent(key.name(), key);
+            if (previous != null && previous.clashesWith(key)) {
+                throw typeClash(previous, key);
+            }
+        }
+    }
+
+    static IllegalArgumentException typeClash(ContextKey<?> existing, ContextKey<?> added) {
+        return new IllegalArgumentException(
+                "Context key '" + existing.name() + "' is already used with type "
+                        + existing.type().getName() + "; cannot also use type "
+                        + added.type().getName()
         );
     }
 
@@ -90,6 +110,11 @@ final class ImmutableContextView implements ContextView {
                 throw new IllegalArgumentException(
                         "Invalid value type for key: " + key.name()
                 );
+            }
+            for (ContextKey<?> existing : values.keySet()) {
+                if (existing.clashesWith(key)) {
+                    throw typeClash(existing, key);
+                }
             }
 
             values.put(key, value);

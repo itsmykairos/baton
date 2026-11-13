@@ -8,6 +8,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * The writes a stage returns. Immutable; build one with {@link #builder()}.
+ */
 public final class ContextPatch {
 
     private static final ContextPatch EMPTY =
@@ -21,22 +24,33 @@ public final class ContextPatch {
         );
     }
 
+    /** {@return a patch with no writes} */
     public static ContextPatch empty() {
         return EMPTY;
     }
 
+    /** {@return a builder for a new patch} */
     public static Builder builder() {
         return new Builder();
     }
 
+    /** {@return true if the patch writes nothing} */
     public boolean isEmpty() {
         return writes.isEmpty();
     }
 
+    /** {@return the written keys, in insertion order} */
     public Set<ContextKey<?>> writtenKeys() {
         return writes.keySet();
     }
 
+    /**
+     * Looks up the value this patch writes for {@code key}.
+     *
+     * @param key the key
+     * @param <T> the value type
+     * @return the written value, or empty if this patch does not write the key
+     */
     public <T> Optional<T> find(ContextKey<T> key) {
         Objects.requireNonNull(key, "key");
 
@@ -49,9 +63,23 @@ public final class ContextPatch {
      * Returns {@code base} with this patch's writes applied. Written keys replace
      * existing values: a later layer may overwrite a value written by an earlier
      * layer or supplied in the pipeline input.
+     *
+     * @param base the context to apply this patch to
+     * @return a new context with the writes applied
+     * @throws ContextMergeException if a written key's name is already used in
+     *         {@code base} with a different type
      */
     public ContextView applyTo(ContextView base) {
         Objects.requireNonNull(base, "base");
+
+        for (ContextKey<?> existing : base.keys()) {
+            for (ContextKey<?> written : writes.keySet()) {
+                if (existing.clashesWith(written)) {
+                    throw new ContextMergeException(
+                            ImmutableContextView.typeClash(existing, written).getMessage());
+                }
+            }
+        }
 
         Map<ContextKey<?>, Object> merged = copyValues(base);
         merged.putAll(writes);
@@ -61,10 +89,15 @@ public final class ContextPatch {
 
     /**
      * Merges patches.
-     * Duplicate keys are conflicts, even when values are equal.
+     * Duplicate keys are conflicts, even when values are equal, and so are two
+     * keys with the same name but different types.
      *
      * <p>The engine uses this for the stages of one parallel layer only; conflicts
      * are never detected across layers (see {@link #applyTo(ContextView)}).</p>
+     *
+     * @param patches the patches to combine
+     * @return one patch holding every write
+     * @throws ContextMergeException if two patches write the same key name
      */
     public static ContextPatch merge(
             Collection<ContextPatch> patches
@@ -73,12 +106,13 @@ public final class ContextPatch {
 
         Map<ContextKey<?>, Object> merged =
                 new LinkedHashMap<>();
+        Set<String> names = new java.util.HashSet<>();
 
         for (ContextPatch patch : patches) {
             Objects.requireNonNull(patch, "patch");
 
             for (var entry : patch.writes.entrySet()) {
-                if (merged.containsKey(entry.getKey())) {
+                if (!names.add(entry.getKey().name())) {
                     throw new ContextMergeException(
                             "Multiple stages wrote context key: "
                                     + entry.getKey().name()
@@ -96,7 +130,12 @@ public final class ContextPatch {
 
     /**
      * Calculates added or changed values.
-     * Context values are compared using equals().
+     * Context values are compared using equals(), so rewriting a key with an
+     * equal value is not reported.
+     *
+     * @param before the earlier context
+     * @param after the later context
+     * @return the keys of {@code after} that are new or have a different value
      */
     public static ContextPatch diff(
             ContextView before,
@@ -154,6 +193,7 @@ public final class ContextPatch {
         builder.put(castKey(key), value);
     }
 
+    /** Builds a {@link ContextPatch}. */
     public static final class Builder {
 
         private final Map<ContextKey<?>, Object> writes =
@@ -162,6 +202,16 @@ public final class ContextPatch {
         private Builder() {
         }
 
+        /**
+         * Adds a write.
+         *
+         * @param key the key
+         * @param value a non-null instance of the key's type
+         * @param <T> the value type
+         * @return this builder
+         * @throws IllegalArgumentException if the value has the wrong type, the key
+         *         is already written, or its name is already written with another type
+         */
         public <T> Builder put(
                 ContextKey<T> key,
                 T value
@@ -180,11 +230,17 @@ public final class ContextPatch {
                         "Key written twice in one patch: " + key.name()
                 );
             }
+            for (ContextKey<?> existing : writes.keySet()) {
+                if (existing.clashesWith(key)) {
+                    throw ImmutableContextView.typeClash(existing, key);
+                }
+            }
 
             writes.put(key, value);
             return this;
         }
 
+        /** {@return the immutable patch} */
         public ContextPatch build() {
             return writes.isEmpty()
                     ? EMPTY

@@ -3,16 +3,27 @@ package dev.baton.api;
 
 import java.util.function.Consumer;
 
+/**
+ * An immutable, reusable pipeline of stages arranged in layers. Each layer is one
+ * sequential stage or a group of parallel stages; layers run in order.
+ */
 public interface Pipeline {
 
     /**
      * Executes synchronously.
+     *
+     * @param input the initial context
+     * @return the terminal result
+     * @throws InterruptedException if the calling thread is interrupted while waiting
      */
     PipelineResult run(ContextView input)
             throws InterruptedException;
 
     /**
-     * Starts asynchronous execution.
+     * Starts asynchronous execution on virtual threads.
+     *
+     * @param input the initial context
+     * @return a handle for awaiting or cancelling the run
      */
     PipelineRun start(ContextView input);
 
@@ -22,24 +33,42 @@ public interface Pipeline {
      * <p>Baton Core runs a core pipeline adapted this way inside the parent run,
      * inheriting its executor, deadline and cancellation; see
      * {@link NestedPipelineStage} for the outcome rules.</p>
+     *
+     * @return a stage that runs this pipeline
      */
     default Stage asStage() {
         return new NestedPipelineStage(this);
     }
 
+    /**
+     * Creates a builder from the runtime found by {@link PipelineProvider#load()}.
+     *
+     * @return a new builder
+     * @throws IllegalStateException if no runtime is available
+     */
     static Builder builder() {
         return PipelineProvider.load().builder();
     }
 
+    /** Builds a {@link Pipeline}. Stage and layer ids must be unique and non-blank. */
     interface Builder {
 
         /**
          * Adds a sequential stage using default options.
+         *
+         * @param id unique stage id
+         * @param stage the stage
+         * @return this builder
          */
         Builder stage(String id, Stage stage);
 
         /**
          * Adds a sequential stage with explicit options.
+         *
+         * @param id unique stage id
+         * @param stage the stage
+         * @param options timeout and failure policy
+         * @return this builder
          */
         Builder stage(
                 String id,
@@ -48,7 +77,12 @@ public interface Pipeline {
         );
 
         /**
-         * Defines a parallel execution layer.
+         * Defines a parallel execution layer. Its stages all read the same context
+         * snapshot; their patches are merged when every stage has finished.
+         *
+         * @param id unique layer id
+         * @param definition adds at least one stage to the layer
+         * @return this builder
          */
         Builder parallel(
                 String id,
@@ -56,7 +90,10 @@ public interface Pipeline {
         );
 
         /**
-         * Builds the immutable pipeline definition.
+         * Builds the immutable pipeline definition. The builder cannot be used again.
+         *
+         * @return the pipeline
+         * @throws IllegalStateException if no stage was added, or the builder was already used
          */
         Pipeline build();
     }
@@ -68,11 +105,20 @@ public interface Pipeline {
 
         /**
          * Adds a stage to this parallel layer using default options.
+         *
+         * @param id unique stage id
+         * @param stage the stage
+         * @return this builder
          */
         ParallelBuilder stage(String id, Stage stage);
 
         /**
          * Adds a stage to this parallel layer with explicit options.
+         *
+         * @param id unique stage id
+         * @param stage the stage
+         * @param options timeout and failure policy
+         * @return this builder
          */
         ParallelBuilder stage(
                 String id,

@@ -1,14 +1,11 @@
 package dev.baton.api;
 
+/** What a running stage can see and use. */
 public interface StageContext {
 
-    /**
-     * Immutable snapshot of context available to this stage.
-     */
+    /** {@return the immutable context snapshot available to this stage} */
     ContextView context();
 
-    /**
-     * Stage-owned child task scope.
-     */
+    /** {@return the stage-owned scope for forking child tasks} */
     StageTasks tasks();
 }

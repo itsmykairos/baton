@@ -35,7 +35,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * Runs one pipeline execution, top-level or nested.
@@ -102,7 +101,7 @@ final class ExecutionEngine {
                 control.throwIfCancelled();
 
                 LayerOutcome layerOutcome = executeLayer(layer, currentContext());
-                MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results());
+                MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results(), currentContext());
                 synchronized (state) {
                     results.addAll(merge.results());
                     context = merge.patch().applyTo(context);
@@ -446,41 +445,41 @@ final class ExecutionEngine {
     }
 
     private boolean hasRequiredInputs(StageNode node, ContextView context) {
-        return context.keys().containsAll(node.stage().requiredReads());
+        return context.keys().containsAll(node.requiredReads());
     }
 
     /**
-     * Merges the outputs of a layer's successful stages. Stages that wrote a key
-     * another stage in the same layer also wrote are marked FAILED with a
-     * {@link ContextMergeException}; their output is kept for diagnosis but not
-     * applied. Outputs of non-conflicting stages are applied.
+     * Merges the outputs of a layer's successful stages. A stage fails with a
+     * {@link ContextMergeException}, and its output is kept for diagnosis but not
+     * applied, when it wrote a key name that another stage in the same layer also
+     * wrote, or a key name the context already holds with a different type.
+     * Outputs of the other successful stages are applied.
      */
-    private MergeOutcome mergeSuccessfulOutputs(List<StageResult> layerResults) {
-        Map<ContextKey<?>, List<String>> writers = new LinkedHashMap<>();
+    private MergeOutcome mergeSuccessfulOutputs(List<StageResult> layerResults, ContextView base) {
+        Map<String, List<String>> writersByName = new LinkedHashMap<>();
         for (StageResult result : layerResults) {
             if (result.status() != StageStatus.SUCCEEDED) {
                 continue;
             }
             result.output().ifPresent(patch -> patch.writtenKeys().forEach(key ->
-                    writers.computeIfAbsent(key, ignored -> new ArrayList<>()).add(result.stageId())));
+                    writersByName.computeIfAbsent(key.name(), ignored -> new ArrayList<>())
+                            .add(result.stageId())));
         }
-
-        Map<String, Set<ContextKey<?>>> conflictsByStage = new LinkedHashMap<>();
-        writers.forEach((key, stageIds) -> {
-            if (stageIds.size() > 1) {
-                stageIds.forEach(id ->
-                        conflictsByStage.computeIfAbsent(id, ignored -> new LinkedHashSet<>()).add(key));
-            }
-        });
+        Map<String, ContextKey<?>> baseByName = new LinkedHashMap<>();
+        base.keys().forEach(key -> baseByName.put(key.name(), key));
 
         List<StageResult> adjusted = new ArrayList<>(layerResults.size());
         List<ContextPatch> applied = new ArrayList<>();
         ContextMergeException firstConflict = null;
         for (StageResult result : layerResults) {
-            Set<ContextKey<?>> conflictingKeys = conflictsByStage.get(result.stageId());
-            if (conflictingKeys != null) {
+            List<String> problems = result.status() == StageStatus.SUCCEEDED
+                    ? result.output().map(patch -> conflictsOf(patch, writersByName, baseByName))
+                            .orElse(List.of())
+                    : List.of();
+            if (!problems.isEmpty()) {
                 ContextMergeException conflict = new ContextMergeException(
-                        conflictMessage(result.stageId(), conflictingKeys, writers));
+                        "Stage '" + result.stageId() + "' has conflicting context writes: "
+                                + String.join("; ", problems));
                 if (firstConflict == null) {
                     firstConflict = conflict;
                 }
@@ -498,15 +497,24 @@ final class ExecutionEngine {
         return new MergeOutcome(adjusted, ContextPatch.merge(applied), firstConflict);
     }
 
-    private static String conflictMessage(
-            String stageId,
-            Set<ContextKey<?>> keys,
-            Map<ContextKey<?>, List<String>> writers
+    private static List<String> conflictsOf(
+            ContextPatch patch,
+            Map<String, List<String>> writersByName,
+            Map<String, ContextKey<?>> baseByName
     ) {
-        return "Stage '" + stageId + "' wrote context keys also written in the same layer: "
-                + keys.stream()
-                .map(key -> key.name() + " (written by " + writers.get(key) + ")")
-                .collect(Collectors.joining(", "));
+        List<String> problems = new ArrayList<>();
+        for (ContextKey<?> key : patch.writtenKeys()) {
+            List<String> writers = writersByName.get(key.name());
+            if (writers.size() > 1) {
+                problems.add(key.name() + " also written in the same layer by " + writers);
+            }
+            ContextKey<?> existing = baseByName.get(key.name());
+            if (existing != null && !existing.type().equals(key.type())) {
+                problems.add(key.name() + " already holds " + existing.type().getName()
+                        + ", not " + key.type().getName());
+            }
+        }
+        return problems;
     }
 
     private static boolean stopsPipeline(StageNode node, StageResult result) {

@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 
+/** Per-stage execution options. Immutable; each {@code with} method returns a copy. */
 public final class StageOptions {
 
     private static final StageOptions DEFAULTS =
@@ -30,10 +31,19 @@ public final class StageOptions {
         );
     }
 
+    /** {@return no timeout and {@link FailurePolicy#FAIL_FAST}} */
     public static StageOptions defaults() {
         return DEFAULTS;
     }
 
+    /**
+     * Sets the stage timeout.
+     *
+     * @param timeout a positive limit; the stage, its child tasks and any nested
+     *                pipeline it runs must finish within it
+     * @return a copy with this timeout
+     * @throws IllegalArgumentException if the timeout is zero or negative
+     */
     public StageOptions withTimeout(Duration timeout) {
         return new StageOptions(
                 Objects.requireNonNull(timeout, "timeout"),
@@ -41,6 +51,12 @@ public final class StageOptions {
         );
     }
 
+    /**
+     * Sets the failure policy.
+     *
+     * @param failurePolicy what a failure or timeout of this stage means for the run
+     * @return a copy with this policy
+     */
     public StageOptions withFailurePolicy(
             FailurePolicy failurePolicy
     ) {
@@ -50,10 +66,12 @@ public final class StageOptions {
         );
     }
 
+    /** {@return the timeout, if any} */
     public Optional<Duration> timeout() {
         return Optional.ofNullable(timeout);
     }
 
+    /** {@return the failure policy} */
     public FailurePolicy failurePolicy() {
         return failurePolicy;
     }

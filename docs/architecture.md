@@ -6,6 +6,11 @@
 and stage authors. It must not expose `ExecutorService`, virtual-thread factories, internal
 scheduler types, or implementation-specific cancellation machinery.
 
+The boundary is enforced with JPMS: `dev.baton.api` exports only `dev.baton.api` and
+`uses PipelineProvider`; `dev.baton.core` exports nothing and `provides` the
+`PipelineProvider`. `baton-integration-tests` compiles against the API and testkit only,
+with core on the runtime classpath, and checks the module descriptors.
+
 `baton-core` implements the API. Keep packages organized by responsibility:
 
 - `execution`: pipeline and layer coordination

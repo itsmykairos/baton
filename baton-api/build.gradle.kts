@@ -3,10 +3,6 @@ plugins {
 }
 
 java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
-    withSourcesJar()
     withJavadocJar()
 }
 
@@ -16,13 +12,16 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 dependencies {
-    testImplementation(platform("org.junit:junit-bom:5.11.4"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.assertj:assertj-core:3.27.3")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.assertj)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+// The public API must stay fully documented: any Javadoc warning fails the build.
+tasks.javadoc {
+    (options as StandardJavadocDocletOptions).apply {
+        addBooleanOption("Xdoclint:all", true)
+        addBooleanOption("Werror", true)
+    }
 }

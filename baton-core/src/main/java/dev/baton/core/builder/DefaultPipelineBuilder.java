@@ -3,6 +3,7 @@ package dev.baton.core.builder;
 import dev.baton.api.Pipeline;
 import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
+import dev.baton.api.event.PipelineListener;
 import dev.baton.core.definition.LayerDefinition;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.definition.StageNode;
@@ -17,11 +18,28 @@ import java.util.function.Consumer;
 public final class DefaultPipelineBuilder implements Pipeline.Builder {
 
     private final List<LayerDefinition> layers = new ArrayList<>();
+    private final List<PipelineListener> listeners = new ArrayList<>();
+    private String name = PipelineDefinition.DEFAULT_NAME;
 
     private final Set<String> layerIds = new HashSet<>();
     private final Set<String> stageIds = new HashSet<>();
 
     private boolean built;
+
+    @Override
+    public DefaultPipelineBuilder name(String name) {
+        ensureOpen();
+        StageNode.requireId(name, "pipeline name");
+        this.name = name;
+        return this;
+    }
+
+    @Override
+    public DefaultPipelineBuilder listener(PipelineListener listener) {
+        ensureOpen();
+        listeners.add(Objects.requireNonNull(listener, "listener"));
+        return this;
+    }
 
     @Override
     public DefaultPipelineBuilder stage(
@@ -109,7 +127,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         built = true;
 
         PipelineDefinition definition =
-                new PipelineDefinition(layers);
+                new PipelineDefinition(name, layers, listeners);
 
         return new dev.baton.core.DefaultPipeline(definition);
     }

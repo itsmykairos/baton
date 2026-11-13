@@ -213,13 +213,13 @@ class NestedPipelineTest {
         AtomicBoolean delegated = new AtomicBoolean();
         Pipeline foreign = new Pipeline() {
             @Override
-            public PipelineResult run(ContextView input) throws InterruptedException {
+            public PipelineResult run(ContextView input, dev.baton.api.RunOptions options) throws InterruptedException {
                 delegated.set(true);
                 return inner.run(input);
             }
 
             @Override
-            public PipelineRun start(ContextView input) {
+            public PipelineRun start(ContextView input, dev.baton.api.RunOptions options) {
                 throw new UnsupportedOperationException();
             }
         };

@@ -13,15 +13,18 @@ import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
 import dev.baton.core.DefaultPipeline;
+import dev.baton.api.event.StagePath;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.LayerDefinition;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.definition.StageNode;
+import dev.baton.core.event.RunEvents;
 import dev.baton.core.result.DefaultPipelineResult;
 import dev.baton.core.result.DefaultStageResult;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -57,6 +60,9 @@ final class ExecutionEngine {
     private final DeadlineScheduler deadlines;
     private final ExecutionControl control;
     private final Deadline inherited;
+    private final RunEvents events;
+    /** Path of the nested stage running this engine; null for the outermost run. */
+    private final StagePath parentPath;
 
     private final Object state = new Object();
     private ContextView context;
@@ -73,7 +79,7 @@ final class ExecutionEngine {
             DeadlineScheduler deadlines,
             ExecutionControl control
     ) {
-        this(definition, executor, deadlines, control, Deadline.unlimited());
+        this(definition, executor, deadlines, control, RunEvents.NONE);
     }
 
     ExecutionEngine(
@@ -81,13 +87,27 @@ final class ExecutionEngine {
             ExecutorService executor,
             DeadlineScheduler deadlines,
             ExecutionControl control,
-            Deadline inherited
+            RunEvents events
+    ) {
+        this(definition, executor, deadlines, control, Deadline.unlimited(), events, null);
+    }
+
+    private ExecutionEngine(
+            PipelineDefinition definition,
+            ExecutorService executor,
+            DeadlineScheduler deadlines,
+            ExecutionControl control,
+            Deadline inherited,
+            RunEvents events,
+            StagePath parentPath
     ) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
         this.control = Objects.requireNonNull(control, "control");
         this.inherited = Objects.requireNonNull(inherited, "inherited");
+        this.events = Objects.requireNonNull(events, "events");
+        this.parentPath = parentPath;
     }
 
     DefaultPipelineResult execute(ContextView input) {
@@ -107,6 +127,14 @@ final class ExecutionEngine {
                     context = merge.patch().applyTo(context);
                     writtenKeys.addAll(merge.patch().writtenKeys());
                     activeLayer = null;
+                }
+                // Emitted after the merge so a conflict's FAILED status is what listeners see.
+                if (events.enabled()) {
+                    List<StageResult> finalResults = merge.results();
+                    for (int i = 0; i < finalResults.size(); i++) {
+                        StageResult result = finalResults.get(i);
+                        events.stageFinished(pathOf(result.stageId()), result, layerOutcome.startedAt()[i]);
+                    }
                 }
 
                 if (control.isCancelled()) {
@@ -194,6 +222,7 @@ final class ExecutionEngine {
         @SuppressWarnings("unchecked")
         TrackedTask<StageExecution>[] tasks = new TrackedTask[size];
         StageResult[] layerResults = new StageResult[size];
+        Instant[] startedAt = new Instant[size];
         synchronized (state) {
             activeLayer = new ActiveLayer(stages, tasks, layerResults);
         }
@@ -210,6 +239,9 @@ final class ExecutionEngine {
             } else {
                 try {
                     int index = i;
+                    if (events.enabled()) {
+                        startedAt[i] = events.stageStarted(pathOf(stage.id()));
+                    }
                     TrackedTask<StageExecution> task = submitStage(stage, context, registered -> {
                         synchronized (state) {
                             tasks[index] = registered;
@@ -253,7 +285,7 @@ final class ExecutionEngine {
             }
             Thread.currentThread().interrupt();
         }
-        return new LayerOutcome(List.of(layerResults), trigger);
+        return new LayerOutcome(List.of(layerResults), trigger, startedAt);
     }
 
     private void record(StageResult[] layerResults, int index, StageResult result) {
@@ -289,8 +321,10 @@ final class ExecutionEngine {
         if (node.stage() instanceof NestedPipelineStage nested
                 && nested.pipeline() instanceof DefaultPipeline child) {
             ExecutionControl childControl = new ExecutionControl();
+            // The child's own listeners are not used: its events go to the outermost run.
             ExecutionEngine childEngine = new ExecutionEngine(
-                    child.definition(), executor, deadlines, childControl, deadline);
+                    child.definition(), executor, deadlines, childControl, deadline,
+                    events, pathOf(node.id()));
             task = TrackedTask.submit(
                     executor,
                     deadline,
@@ -517,6 +551,10 @@ final class ExecutionEngine {
         return problems;
     }
 
+    private StagePath pathOf(String stageId) {
+        return parentPath == null ? StagePath.of(stageId) : parentPath.child(stageId);
+    }
+
     private static boolean stopsPipeline(StageNode node, StageResult result) {
         boolean unsuccessful = result.status() == StageStatus.FAILED
                 || result.status() == StageStatus.TIMED_OUT;
@@ -547,7 +585,7 @@ final class ExecutionEngine {
     private record StageExecution(ContextPatch patch, Duration duration) { }
 
     /** A layer's results in definition order, and the FAIL_FAST result that stops the run, if any. */
-    private record LayerOutcome(List<StageResult> results, StageResult trigger) { }
+    private record LayerOutcome(List<StageResult> results, StageResult trigger, Instant[] startedAt) { }
 
     /** The layer in flight; its arrays are only read or written under {@link #state}. */
     private record ActiveLayer(

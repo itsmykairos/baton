@@ -57,6 +57,26 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Observability
+
+- The engine emits run and stage events only when a run has listeners: the pipeline's
+  own (builder) plus the run's (`RunOptions`). Without listeners, it builds no events and
+  starts no threads.
+- Each run with listeners has an `AsyncEventDispatcher`: a bounded queue drained by one
+  virtual thread.
+  - Producers only `offer`; when the queue is full, the event is dropped and counted.
+  - The final `RunFinished` is never dropped. It is delivered after the queue drains,
+    and carries the drop count.
+  - A listener that throws is logged through `System.Logger` (`dev.baton.event`) and
+    skipped.
+- `StageStarted` is emitted when a stage is submitted. `StageFinished` is emitted after
+  the layer's merge, so conflict statuses are final. Its timestamp is the stage's
+  logical end (start + duration).
+- Nested pipelines share the outermost run's events, and their paths are prefixed with
+  the nested stage ids. A nested pipeline's own builder listeners are not used.
+- Metrics and tracing live in optional modules (`baton-micrometer`,
+  `baton-opentelemetry`). They depend on `baton-api` only, never on `baton-core`.
+
 ## Deliberately deferred
 
 - Reactive execution engine or Reactor dependency

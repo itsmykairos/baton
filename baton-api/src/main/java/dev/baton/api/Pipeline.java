@@ -1,6 +1,8 @@
 
 package dev.baton.api;
 
+import dev.baton.api.event.PipelineListener;
+
 import java.util.function.Consumer;
 
 /**
@@ -10,22 +12,44 @@ import java.util.function.Consumer;
 public interface Pipeline {
 
     /**
-     * Executes synchronously.
+     * Executes synchronously with default {@link RunOptions}.
      *
      * @param input the initial context
      * @return the terminal result
      * @throws InterruptedException if the calling thread is interrupted while waiting
      */
-    PipelineResult run(ContextView input)
-            throws InterruptedException;
+    default PipelineResult run(ContextView input) throws InterruptedException {
+        return run(input, RunOptions.defaults());
+    }
+
+    /**
+     * Executes synchronously.
+     *
+     * @param input the initial context
+     * @param options per-run options, such as extra listeners
+     * @return the terminal result
+     * @throws InterruptedException if the calling thread is interrupted while waiting
+     */
+    PipelineResult run(ContextView input, RunOptions options) throws InterruptedException;
+
+    /**
+     * Starts asynchronous execution on virtual threads with default {@link RunOptions}.
+     *
+     * @param input the initial context
+     * @return a handle for awaiting or cancelling the run
+     */
+    default PipelineRun start(ContextView input) {
+        return start(input, RunOptions.defaults());
+    }
 
     /**
      * Starts asynchronous execution on virtual threads.
      *
      * @param input the initial context
+     * @param options per-run options, such as extra listeners
      * @return a handle for awaiting or cancelling the run
      */
-    PipelineRun start(ContextView input);
+    PipelineRun start(ContextView input, RunOptions options);
 
     /**
      * Adapts this pipeline as a regular stage.
@@ -52,6 +76,26 @@ public interface Pipeline {
 
     /** Builds a {@link Pipeline}. Stage and layer ids must be unique and non-blank. */
     interface Builder {
+
+        /**
+         * Names the pipeline. The name is carried by every event and is meant for
+         * metrics and traces; it need not be unique. Defaults to {@code "pipeline"}.
+         *
+         * @param name a non-blank name
+         * @return this builder
+         */
+        Builder name(String name);
+
+        /**
+         * Adds a listener that receives the events of every run of this pipeline.
+         * When this pipeline runs nested inside another, its events go to the
+         * outermost run's listeners instead.
+         *
+         * @param listener the listener
+         * @return this builder
+         * @see PipelineListener
+         */
+        Builder listener(PipelineListener listener);
 
         /**
          * Adds a sequential stage using default options.

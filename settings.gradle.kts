@@ -18,6 +18,8 @@ include(
     "baton-api",
     "baton-core",
     "baton-testkit",
+    "baton-micrometer",
+    "baton-opentelemetry",
     "baton-integration-tests",
     "baton-examples"
 )

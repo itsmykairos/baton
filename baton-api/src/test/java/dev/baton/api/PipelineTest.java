@@ -12,12 +12,12 @@ class PipelineTest {
         Pipeline pipeline = new Pipeline() {
 
             @Override
-            public PipelineResult run(ContextView input) {
+            public PipelineResult run(ContextView input, dev.baton.api.RunOptions options) {
                 throw new UnsupportedOperationException();
             }
 
             @Override
-            public PipelineRun start(ContextView input) {
+            public PipelineRun start(ContextView input, dev.baton.api.RunOptions options) {
                 throw new UnsupportedOperationException();
             }
         };

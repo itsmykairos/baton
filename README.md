@@ -13,7 +13,9 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 |---|---|---|
 | `baton-api` | The public API (`dev.baton.api`). The only module your code should compile against. | `implementation` |
 | `baton-core` | The runtime. Exports no packages; found at startup through `ServiceLoader`. | `runtimeOnly` |
-| `baton-testkit` | Helpers for testing stages and inspecting results. | `testImplementation` |
+| `baton-testkit` | Helpers for testing stages and inspecting results, and a `RecordingListener`. | `testImplementation` |
+| `baton-micrometer` | Optional: run and stage metrics for Micrometer. | `implementation` |
+| `baton-opentelemetry` | Optional: one trace per run, one span per stage, for OpenTelemetry. | `implementation` |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
 
@@ -89,6 +91,42 @@ result.context().get(TOTAL);                                     // 42
 - The child's stage results appear in `StageResult.children()`.
 - `isSuccessful()` and `hasFailures()` check those children at every level.
 
+## Observability
+
+Runs emit events (`RunStarted`, `StageStarted`, `StageFinished`, `RunFinished`, in
+`dev.baton.api.event`) to `PipelineListener`s:
+
+```java
+Pipeline checkout = Pipeline.builder()
+        .name("checkout")                                           // tags every event
+        .listener(new MicrometerPipelineListener(meterRegistry))    // every run
+        .listener(new OpenTelemetryPipelineListener(openTelemetry))
+        ...
+        .build();
+
+checkout.run(input, RunOptions.defaults()
+        .withListener(OpenTelemetryPipelineListener.forCurrentContext(openTelemetry)));  // this run only
+```
+
+**Delivery**
+- Delivery is asynchronous. Each run with listeners gets a bounded queue, drained by
+  one virtual thread, so a slow or failing listener never slows or breaks the pipeline.
+- If the queue fills, further events of that run are dropped and counted in
+  `RunFinished.droppedEvents()`. The queue size is set with
+  `RunOptions.withEventBufferCapacity`.
+- A run without listeners creates no queue, no thread and no event objects.
+- Events of one run arrive in order, and `RunFinished` is always last.
+  `RunFinished` can arrive after `run()` returns.
+
+**Nested pipelines**
+- Their events go to the outermost run's listeners, with paths like `payment/charge`.
+
+**Adapters** (optional modules that depend only on `baton-api` and their own library)
+- `baton-micrometer` records `baton.stage.duration`, `baton.run.duration`,
+  `baton.runs.active` and `baton.events.dropped`.
+- `baton-opentelemetry` creates a span per run and per stage, using the events'
+  timestamps. FAILED and TIMED_OUT stages and runs are marked as errors.
+
 [docs/architecture.md](docs/architecture.md) has the design notes, and the Javadoc
 of `dev.baton.api` has the full contract.
 
@@ -98,6 +136,12 @@ of `dev.baton.api` has the full contract.
 // One stage, no pipeline:
 ContextView out = StageTester.runAndApply(new PriceStage(),
         ContextView.builder().put(ORDER_ID, "A-1").build());
+
+// Events, for one run:
+RecordingListener recorder = new RecordingListener();
+pipeline.run(input, RunOptions.defaults().withListener(recorder));
+recorder.awaitRunsFinished(1, Duration.ofSeconds(5));
+recorder.stageFinished("payment/charge").status();
 
 // A whole run, including nested stages:
 PipelineResults.requireSuccess(result);   // AssertionError with a readable result tree

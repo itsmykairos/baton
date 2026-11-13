@@ -4,6 +4,7 @@ import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.PipelineRun;
+import dev.baton.api.RunOptions;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.execution.PipelineExecutionSession;
 
@@ -26,21 +27,23 @@ public final class DefaultPipeline implements Pipeline {
     }
 
     @Override
-    public PipelineResult run(ContextView input)
+    public PipelineResult run(ContextView input, RunOptions options)
             throws InterruptedException {
 
         return new PipelineExecutionSession(
                 definition,
-                Objects.requireNonNull(input, "input")
+                Objects.requireNonNull(input, "input"),
+                Objects.requireNonNull(options, "options")
         ).executeSync();
     }
 
     @Override
-    public PipelineRun start(ContextView input) {
+    public PipelineRun start(ContextView input, RunOptions options) {
         PipelineExecutionSession session =
                 new PipelineExecutionSession(
                         definition,
-                        Objects.requireNonNull(input, "input")
+                        Objects.requireNonNull(input, "input"),
+                        Objects.requireNonNull(options, "options")
                 );
 
         session.startAsync();

@@ -193,22 +193,43 @@ final class TrackedTask<T> {
      * Cancels the task. If its deadline has already passed (for example when an
      * enclosing nested stage with the same deadline expires first), the outcome is
      * a deadline expiry rather than a cancellation.
+     *
+     * <p>When this returns, the task is always done. If another thread is already
+     * completing it (for example its own deadline expiring), this waits for that
+     * thread to publish the outcome. That thread only cancels this task's
+     * descendants and never waits on an ancestor, so this cannot deadlock.</p>
      */
     void cancel() {
-        boolean expired;
+        boolean claimed;
+        boolean expired = false;
         synchronized (completionLock) {
-            if (terminal.get()) {
-                return;
+            claimed = !terminal.get();
+            if (claimed) {
+                terminal.set(true);
+                logicalCompletedNanos = System.nanoTime();
+                deadlineRegistration.cancel();
+                expired = deadline.isExpired();
             }
-            terminal.set(true);
-            logicalCompletedNanos = System.nanoTime();
-            deadlineRegistration.cancel();
-            expired = deadline.isExpired();
         }
+        if (!claimed) {
+            // Completed, or being completed by another thread: wait for its outcome.
+            awaitOutcome();
+            return;
+        }
+        // Never cascade into child scopes or engines while holding the lock.
         cancelWorkerAndChildren();
         outcome.completeExceptionally(expired
                 ? new DeadlineExceededException("Task deadline expired")
                 : new CancellationException("Task was cancelled"));
+    }
+
+    /** Waits, uninterruptibly, until another thread has published the outcome. */
+    private void awaitOutcome() {
+        try {
+            outcome.handle((value, failure) -> null).join();
+        } catch (RuntimeException ignored) {
+            // handle() never completes exceptionally.
+        }
     }
 
     private void cancelWorkerAndChildren() {

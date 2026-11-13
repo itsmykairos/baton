@@ -5,11 +5,16 @@ import dev.baton.api.PipelineResult;
 import dev.baton.api.PipelineRun;
 import dev.baton.api.PipelineRunStatus;
 import dev.baton.api.PipelineStatus;
+import dev.baton.api.RunOptions;
+import dev.baton.api.event.PipelineListener;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.PipelineDefinition;
+import dev.baton.core.event.RunEvents;
 import dev.baton.core.result.DefaultPipelineResult;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -29,23 +34,34 @@ public final class PipelineExecutionSession implements PipelineRun {
             new AtomicReference<>(PipelineRunStatus.CREATED);
     private final Object completionLock = new Object();
     private final ExecutionEngine engine;
+    private final RunEvents events;
 
     public PipelineExecutionSession(PipelineDefinition definition, ContextView input) {
+        this(definition, input, RunOptions.defaults());
+    }
+
+    public PipelineExecutionSession(PipelineDefinition definition, ContextView input, RunOptions options) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.input = Objects.requireNonNull(input, "input");
-        this.engine = new ExecutionEngine(definition, executor, deadlines, control);
+        Objects.requireNonNull(options, "options");
+        List<PipelineListener> listeners = new ArrayList<>(definition.listeners());
+        listeners.addAll(options.listeners());
+        this.events = RunEvents.create(definition.name(), listeners, options.eventBufferCapacity());
+        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events);
     }
 
     public PipelineResult executeSync() throws InterruptedException {
         if (!status.compareAndSet(PipelineRunStatus.CREATED, PipelineRunStatus.RUNNING)) {
             throw new IllegalStateException("Execution session already started");
         }
+        events.runStarted();
         try {
             PipelineResult result = executeEngine();
             complete(result);
             return result;
         } catch (RuntimeException | Error failure) {
             control.abort();
+            events.runFinished(PipelineStatus.FAILED, Optional.of(failure));
             throw failure;
         } finally {
             shutdownResources();
@@ -56,6 +72,7 @@ public final class PipelineExecutionSession implements PipelineRun {
         if (!status.compareAndSet(PipelineRunStatus.CREATED, PipelineRunStatus.RUNNING)) {
             throw new IllegalStateException("Execution session already started");
         }
+        events.runStarted();
         Thread.ofVirtual().name("baton-pipeline").start(() -> {
             try {
                 PipelineResult result = executeEngine();
@@ -107,6 +124,7 @@ public final class PipelineExecutionSession implements PipelineRun {
                 case CANCELLED -> PipelineRunStatus.CANCELLED;
             };
             status.set(terminalStatus);
+            events.runFinished(result);
             completion.complete(result);
         }
     }

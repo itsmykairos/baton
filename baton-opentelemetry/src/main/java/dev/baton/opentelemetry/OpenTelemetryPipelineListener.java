@@ -1,6 +1,7 @@
 package dev.baton.opentelemetry;
 
 import dev.baton.api.StageStatus;
+import dev.baton.api.event.ContextConflict;
 import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
@@ -31,7 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>FAILED and TIMED_OUT stages and runs get status {@link StatusCode#ERROR} and a
  * recorded exception. Each retry adds a {@value #RETRY_EVENT} span event with the
- * failed attempt, its exception and the backoff. Attributes: {@value #PIPELINE_NAME}, {@value #RUN_ID},
+ * failed attempt, its exception and the backoff, and each context write conflict
+ * adds a {@value #CONFLICT_EVENT} event to the run span. Attributes: {@value #PIPELINE_NAME}, {@value #RUN_ID},
  * {@value #RUN_STATUS}, {@value #STAGE_PATH}, {@value #STAGE_STATUS}, {@value #STAGE_ATTEMPTS},
  * {@value #WORKER_TERMINATION} and {@value #DROPPED_EVENTS}.</p>
  *
@@ -57,6 +59,8 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
     public static final String STAGE_STATUS = "baton.stage.status";
     /** Attribute: how many attempts the stage started. */
     public static final String STAGE_ATTEMPTS = "baton.stage.attempts";
+    /** Span event name for a context write conflict, on the run span. */
+    public static final String CONFLICT_EVENT = "baton.conflict";
     /** Span event name for a retried attempt. */
     public static final String RETRY_EVENT = "baton.retry";
     /** Attribute: what is known about the stage worker's exit. */
@@ -121,6 +125,15 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
                             retrying.timestamp());
                 }
             }
+            case ContextConflict conflict -> spans(conflict).run.addEvent(CONFLICT_EVENT,
+                    io.opentelemetry.api.common.Attributes.of(
+                            AttributeKey.stringKey("baton.conflict.key"), conflict.conflict().key(),
+                            AttributeKey.stringKey("baton.conflict.kind"), conflict.conflict().kind().name(),
+                            AttributeKey.stringKey("baton.conflict.resolution"),
+                            conflict.conflict().resolution().name(),
+                            AttributeKey.stringArrayKey("baton.conflict.stages"),
+                            conflict.conflict().stages().stream().map(Object::toString).toList()),
+                    conflict.timestamp());
             case StageFinished finished -> finishStage(finished);
             case RunFinished finished -> finishRun(finished);
         }

@@ -1,5 +1,6 @@
 package dev.baton.micrometer;
 
+import dev.baton.api.event.ContextConflict;
 import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <tr><th>Name</th><th>Type</th><th>Tags</th></tr>
  *   <tr><td>{@value #STAGE_DURATION}</td><td>timer</td><td>pipeline, stage (path), status</td></tr>
  *   <tr><td>{@value #STAGE_RETRIES}</td><td>counter</td><td>pipeline, stage (path)</td></tr>
+ *   <tr><td>{@value #CONTEXT_CONFLICTS}</td><td>counter</td><td>pipeline, kind, resolution</td></tr>
  *   <tr><td>{@value #RUN_DURATION}</td><td>timer</td><td>pipeline, status</td></tr>
  *   <tr><td>{@value #ACTIVE_RUNS}</td><td>gauge</td><td>pipeline</td></tr>
  *   <tr><td>{@value #DROPPED_EVENTS}</td><td>counter</td><td>pipeline</td></tr>
@@ -41,6 +43,8 @@ public final class MicrometerPipelineListener implements PipelineListener {
     public static final String STAGE_DURATION = "baton.stage.duration";
     /** Counter of retried stage attempts. */
     public static final String STAGE_RETRIES = "baton.stage.retries";
+    /** Counter of context write conflicts, by kind and resolution. */
+    public static final String CONTEXT_CONFLICTS = "baton.context.conflicts";
     /** Timer for run durations. */
     public static final String RUN_DURATION = "baton.run.duration";
     /** Gauge of runs in progress. */
@@ -65,6 +69,13 @@ public final class MicrometerPipelineListener implements PipelineListener {
         switch (event) {
             case RunStarted started -> active(started.pipelineName()).incrementAndGet();
             case StageStarted ignored -> { }
+            case ContextConflict conflict -> Counter.builder(CONTEXT_CONFLICTS)
+                    .description("Context write conflicts and how they were resolved")
+                    .tag("pipeline", conflict.pipelineName())
+                    .tag("kind", conflict.conflict().kind().name())
+                    .tag("resolution", conflict.conflict().resolution().name())
+                    .register(registry)
+                    .increment();
             case StageRetrying retrying -> Counter.builder(STAGE_RETRIES)
                     .description("Stage attempts that failed and were retried")
                     .tag("pipeline", retrying.pipelineName())

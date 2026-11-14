@@ -4,11 +4,14 @@ import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 
+import dev.baton.api.EventOverflowPolicy;
+import dev.baton.api.ListenerErrorHandler;
+
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
@@ -20,7 +23,7 @@ import java.util.function.LongFunction;
  * <p>Producers (stage and engine threads) only append to a lock-free queue and
  * never block or wake the delivery thread; when the queue holds {@code capacity}
  * events, further events are dropped and counted. The delivery thread drains the
- * queue in batches at least every {@link #BATCH_INTERVAL_MILLIS} ms, and at once
+ * queue in batches at least every configured batch interval, and at once
  * when the run finishes. Waking it for every event would cost a park/unpark per
  * event, which measurably slows short runs.</p>
  *
@@ -29,23 +32,29 @@ import java.util.function.LongFunction;
  */
 public final class AsyncEventDispatcher implements EventSink {
 
-    /** Longest delay before a queued event is delivered while the run is active. */
-    public static final long BATCH_INTERVAL_MILLIS = 10;
-
-    private static final System.Logger LOG = System.getLogger("dev.baton.event");
-    private static final long BATCH_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(BATCH_INTERVAL_MILLIS);
-
     private final List<PipelineListener> listeners;
     private final int capacity;
+    private final long batchIntervalNanos;
+    private final EventOverflowPolicy overflow;
+    private final ListenerErrorHandler errorHandler;
     private final Queue<PipelineEvent> queue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger size = new AtomicInteger();
     private final AtomicLong dropped = new AtomicLong();
     private final Thread deliveryThread;
     private volatile LongFunction<RunFinished> lastEvent;
 
-    public AsyncEventDispatcher(List<PipelineListener> listeners, int capacity) {
+    public AsyncEventDispatcher(
+            List<PipelineListener> listeners,
+            int capacity,
+            Duration batchInterval,
+            EventOverflowPolicy overflow,
+            ListenerErrorHandler errorHandler
+    ) {
         this.listeners = List.copyOf(listeners);
         this.capacity = capacity;
+        this.batchIntervalNanos = batchInterval.toNanos();
+        this.overflow = Objects.requireNonNull(overflow, "overflow");
+        this.errorHandler = Objects.requireNonNull(errorHandler, "errorHandler");
         this.deliveryThread = Thread.ofVirtual().name("baton-events").unstarted(this::drain);
         deliveryThread.start();
     }
@@ -65,6 +74,15 @@ public final class AsyncEventDispatcher implements EventSink {
         if (size.incrementAndGet() > capacity) {
             size.decrementAndGet();
             dropped.incrementAndGet();
+            if (overflow == EventOverflowPolicy.DROP_NEWEST) {
+                return;
+            }
+            // DROP_OLDEST: make room by discarding the head, then queue the new event.
+            if (queue.poll() == null) {
+                return;
+            }
+            // The polled event's slot is reused by the new one, so size is unchanged.
+            queue.offer(event);
             return;
         }
         queue.offer(event);
@@ -97,7 +115,7 @@ public final class AsyncEventDispatcher implements EventSink {
                 return;
             }
             // An unpark from finish() before this park makes it return at once.
-            LockSupport.parkNanos(this, BATCH_INTERVAL_NANOS);
+            LockSupport.parkNanos(this, batchIntervalNanos);
         }
     }
 
@@ -106,9 +124,11 @@ public final class AsyncEventDispatcher implements EventSink {
             try {
                 listener.onEvent(event);
             } catch (Throwable failure) {
-                LOG.log(System.Logger.Level.WARNING,
-                        "Pipeline listener " + listener + " failed on " + event.getClass().getSimpleName(),
-                        failure);
+                try {
+                    errorHandler.onListenerError(listener, event, failure);
+                } catch (Throwable handlerFailure) {
+                    // A broken handler must not stop delivery.
+                }
             }
         }
     }

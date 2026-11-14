@@ -16,14 +16,13 @@ import java.util.Set;
  * <p>Applying a patch adds one level holding only the patch's writes on top of
  * the previous context, instead of copying every value. Each level indexes its
  * own keys by name, so the one-type-per-name rule is checked without scanning
- * the whole context. After {@link #MAX_DEPTH} levels the chain is flattened into
- * one level, which keeps lookups short while spreading the copy cost over many
- * patches.</p>
+ * the whole context. With a flatten depth N, a patch that would make the chain
+ * longer than N levels copies everything into one level instead, which caps
+ * lookups at N levels; with {@link BatonConfig#NEVER_FLATTEN} the chain only
+ * grows. All walks over the chain are iterative, so very deep chains are safe.</p>
  */
 final class ImmutableContextView implements ContextView {
 
-    /** Levels allowed before the chain is flattened. */
-    static final int MAX_DEPTH = 16;
 
     private static final ImmutableContextView EMPTY =
             new ImmutableContextView(null, Map.of(), Map.of(), 0);
@@ -69,25 +68,43 @@ final class ImmutableContextView implements ContextView {
 
     /**
      * This context with {@code writes} applied; written keys replace existing values.
-     * Costs O(writes) unless the chain needs flattening.
+     * Costs O(writes) unless the chain is flattened.
      *
-     * @throws ContextMergeException if a written key's name is used here with another type
+     * @param flattenDepth the most levels the chain may have, or
+     *                     {@link BatonConfig#NEVER_FLATTEN}
+     * @param replaceTypes true to replace a key whose name is written with another
+     *                     type; false to reject it
+     * @throws ContextMergeException if a written key's name is used here with another
+     *         type and {@code replaceTypes} is false
      */
-    ImmutableContextView with(Map<ContextKey<?>, Object> writes) {
+    ImmutableContextView with(Map<ContextKey<?>, Object> writes, int flattenDepth, boolean replaceTypes) {
         if (writes.isEmpty()) {
             return this;
         }
+        java.util.List<ContextKey<?>> replaced = null;
         for (ContextKey<?> written : writes.keySet()) {
             ContextKey<?> existing = findKeyNamed(written.name());
             if (existing != null && existing.clashesWith(written)) {
-                throw new ContextMergeException(typeClash(existing, written).getMessage());
+                if (!replaceTypes) {
+                    throw new ContextMergeException(typeClash(existing, written).getMessage());
+                }
+                if (replaced == null) {
+                    replaced = new java.util.ArrayList<>();
+                }
+                replaced.add(existing);
             }
         }
         if (this == EMPTY) {
             return copyOf(writes);
         }
-        if (depth + 1 >= MAX_DEPTH) {
+        // Replacing a type needs a flat copy, so the old key cannot be found in a lower level.
+        boolean flatten = replaced != null
+                || (flattenDepth != BatonConfig.NEVER_FLATTEN && depth + 2 > flattenDepth);
+        if (flatten) {
             Map<ContextKey<?>, Object> flat = flatValues();
+            if (replaced != null) {
+                replaced.forEach(flat::remove);
+            }
             flat.putAll(writes);
             return new ImmutableContextView(null, Collections.unmodifiableMap(flat),
                     indexByName(flat.keySet()), 0);
@@ -141,15 +158,20 @@ final class ImmutableContextView implements ContextView {
     /** Every value in insertion order, with upper levels overriding lower ones. */
     private Map<ContextKey<?>, Object> flatValues() {
         Map<ContextKey<?>, Object> flat = new LinkedHashMap<>();
-        appendValues(flat);
+        for (ImmutableContextView level : levelsBottomUp()) {
+            flat.putAll(level.values);
+        }
         return flat;
     }
 
-    private void appendValues(Map<ContextKey<?>, Object> into) {
-        if (parent != null) {
-            parent.appendValues(into);
+    /** The levels from the oldest to this one, collected without recursion. */
+    private ImmutableContextView[] levelsBottomUp() {
+        ImmutableContextView[] levels = new ImmutableContextView[depth + 1];
+        int index = depth;
+        for (ImmutableContextView level = this; level != null; level = level.parent) {
+            levels[index--] = level;
         }
-        into.putAll(values);
+        return levels;
     }
 
     @Override
@@ -188,8 +210,10 @@ final class ImmutableContextView implements ContextView {
             if (parent == null) {
                 result = Collections.unmodifiableSet(values.keySet());
             } else {
-                Set<ContextKey<?>> all = new LinkedHashSet<>(parent.keys());
-                all.addAll(values.keySet());
+                Set<ContextKey<?>> all = new LinkedHashSet<>();
+                for (ImmutableContextView level : levelsBottomUp()) {
+                    all.addAll(level.values.keySet());
+                }
                 result = Collections.unmodifiableSet(all);
             }
             keys = result;

@@ -7,16 +7,25 @@ import dev.baton.core.definition.StageNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.Objects;
 
 final class DefaultParallelBuilder  implements Pipeline.ParallelBuilder{
 
     private final List<StageNode> stages = new ArrayList<>();
+    /** Ids of stages added without options; handed to the pipeline builder on success. */
+    private final Set<String> inheritOptions = new java.util.HashSet<>();
     private boolean closed;
+
+    Set<String> inheritOptions() {
+        return inheritOptions;
+    }
 
     @Override
     public DefaultParallelBuilder stage(String id, Stage stage) {
-        return stage(id, stage, StageOptions.defaults());
+        stage(id, stage, StageOptions.defaults());
+        inheritOptions.add(id);
+        return this;
     }
 
     @Override

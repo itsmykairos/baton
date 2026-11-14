@@ -1,6 +1,7 @@
 package dev.baton.core.result;
 
 import dev.baton.api.ContextView;
+import dev.baton.api.KeyConflict;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.StageResult;
@@ -14,13 +15,20 @@ public record DefaultPipelineResult(
         PipelineStatus status,
         ContextView context,
         List<StageResult> stages,
-        Throwable error
+        Throwable error,
+        List<KeyConflict> conflicts
 ) implements PipelineResult {
 
     public DefaultPipelineResult {
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(context, "context");
         stages = List.copyOf(stages);
+        conflicts = List.copyOf(conflicts);
+    }
+
+    /** A result without recorded conflicts. */
+    public DefaultPipelineResult(PipelineStatus status, ContextView context, List<StageResult> stages, Throwable error) {
+        this(status, context, stages, error, List.of());
     }
 
     @Override

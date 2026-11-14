@@ -1,8 +1,11 @@
 package dev.baton.core.event;
 
+import dev.baton.api.BatonConfig;
+import dev.baton.api.KeyConflict;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.StageResult;
+import dev.baton.api.event.ContextConflict;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.RunStarted;
@@ -11,6 +14,7 @@ import dev.baton.api.event.StagePath;
 import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StageStarted;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,29 +30,34 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class RunEvents {
 
     /** For runs without listeners. */
-    public static final RunEvents NONE = new RunEvents(EventSink.NONE, null, "pipeline");
+    public static final RunEvents NONE = new RunEvents(EventSink.NONE, null, "pipeline", Clock.systemUTC());
 
     private final EventSink sink;
     private final UUID runId;
     private final String pipelineName;
     private volatile long startedNanos;
 
-    private RunEvents(EventSink sink, UUID runId, String pipelineName) {
+    private final Clock clock;
+
+    private RunEvents(EventSink sink, UUID runId, String pipelineName, Clock clock) {
         this.sink = sink;
         this.runId = runId;
         this.pipelineName = pipelineName;
+        this.clock = clock;
     }
 
     /**
      * Creates the events of a new run: {@link #NONE} if there are no listeners,
      * otherwise a run with its own asynchronous dispatcher.
      */
-    public static RunEvents create(String pipelineName, List<PipelineListener> listeners, int capacity) {
+    public static RunEvents create(String pipelineName, List<PipelineListener> listeners, BatonConfig config) {
         Objects.requireNonNull(pipelineName, "pipelineName");
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return new RunEvents(new AsyncEventDispatcher(listeners, capacity), newRunId(), pipelineName);
+        AsyncEventDispatcher dispatcher = new AsyncEventDispatcher(listeners, config.eventBufferCapacity(),
+                config.eventBatchInterval(), config.eventOverflowPolicy(), config.listenerErrorHandler());
+        return new RunEvents(dispatcher, newRunId(), pipelineName, config.clock());
     }
 
     /**
@@ -69,7 +78,7 @@ public final class RunEvents {
     public void runStarted() {
         startedNanos = System.nanoTime();
         if (enabled()) {
-            sink.emit(new RunStarted(runId, pipelineName, Instant.now()));
+            sink.emit(new RunStarted(runId, pipelineName, Instant.now(clock)));
         }
     }
 
@@ -78,7 +87,7 @@ public final class RunEvents {
         if (!enabled()) {
             return null;
         }
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
         sink.emit(new StageStarted(runId, pipelineName, path, now));
         return now;
     }
@@ -91,7 +100,7 @@ public final class RunEvents {
         if (!enabled()) {
             return;
         }
-        Instant end = startedAt == null ? Instant.now() : startedAt.plus(result.duration());
+        Instant end = startedAt == null ? Instant.now(clock) : startedAt.plus(result.duration());
         sink.emit(new StageFinished(runId, pipelineName, path, result.status(), result.duration(),
                 result.failure(), result.attempts(), result.workerTermination(), end));
     }
@@ -101,7 +110,15 @@ public final class RunEvents {
         if (!enabled()) {
             return;
         }
-        sink.emit(new StageRetrying(runId, pipelineName, path, failedAttempt, failure, delay, Instant.now()));
+        sink.emit(new StageRetrying(runId, pipelineName, path, failedAttempt, failure, delay, Instant.now(clock)));
+    }
+
+    /** Emits ContextConflict for a resolved key conflict. */
+    public void conflict(KeyConflict conflict) {
+        if (!enabled()) {
+            return;
+        }
+        sink.emit(new ContextConflict(runId, pipelineName, conflict, Instant.now(clock)));
     }
 
     /** Ends the run's event stream with its outcome. */
@@ -115,7 +132,7 @@ public final class RunEvents {
             return;
         }
         Duration duration = Duration.ofNanos(System.nanoTime() - startedNanos);
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
         sink.finish(dropped -> new RunFinished(runId, pipelineName, status, duration, failure, dropped, now));
     }
 }

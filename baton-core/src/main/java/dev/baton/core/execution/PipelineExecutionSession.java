@@ -1,5 +1,6 @@
 package dev.baton.core.execution;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextView;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.PipelineRun;
@@ -27,7 +28,7 @@ public final class PipelineExecutionSession implements PipelineRun {
 
     private final PipelineDefinition definition;
     private final ContextView input;
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService executor;
     private final DeadlineScheduler deadlines = DeadlineScheduler.shared();
     private final ExecutionControl control = new ExecutionControl();
     private final CompletableFuture<PipelineResult> completion = new CompletableFuture<>();
@@ -45,14 +46,16 @@ public final class PipelineExecutionSession implements PipelineRun {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.input = Objects.requireNonNull(input, "input");
         Objects.requireNonNull(options, "options");
+        // The run's settings overlay the outermost pipeline's (app + pipeline) settings.
+        BatonConfig config = definition.config().merge(options.config());
+        this.executor = Executors.newThreadPerTaskExecutor(config.threadFactory());
         List<PipelineListener> listeners = new ArrayList<>(definition.listeners());
         listeners.addAll(options.listeners());
-        this.events = RunEvents.create(definition.name(), listeners, options.eventBufferCapacity());
-        Deadline runDeadline = options.timeout()
-                .or(definition::timeout)
+        this.events = RunEvents.create(definition.name(), listeners, config);
+        Deadline runDeadline = config.runTimeout()
                 .map(Deadline::after)
                 .orElseGet(Deadline::unlimited);
-        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline);
+        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline, config);
     }
 
     public PipelineResult executeSync() throws InterruptedException {
@@ -119,7 +122,8 @@ public final class PipelineExecutionSession implements PipelineRun {
                         result.stages(),
                         new java.util.concurrent.CancellationException(
                                 "Pipeline execution was cancelled"
-                        )
+                        ),
+                        result.conflicts()
                 );
             }
             PipelineRunStatus terminalStatus = switch (result.status()) {

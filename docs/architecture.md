@@ -52,8 +52,19 @@ the library modules.
   implementations fall back to `NestedPipelineStage.execute()`.
 - Context snapshots are immutable. A stage returns one patch for the pipeline to merge.
   `ImmutableContextView` is a chain of small levels. Applying a patch adds one level with
-  only its writes and its own name index, and the chain is flattened every 16 levels, so
-  a layer's merge costs O(writes) rather than O(context).
+  only its writes and its own name index, so a layer's merge costs O(writes) rather than
+  O(context).
+  - The chain is flattened every `contextFlattenDepth` levels, or never with the
+    default 0.
+  - All walks over the chain are iterative, so deep chains cannot overflow the stack.
+- Settings come from `BatonConfig`, layered app → pipeline → run → stage
+  (see [configuration.md](configuration.md)).
+  - Each engine resolves its pipeline-scoped settings from its own definition.
+  - Run-scoped settings (thread factory, events, clock) come from the outermost run.
+- The engine's `resolveLayer` applies the conflict policies before a layer's merge.
+  - It only allocates when a conflict must drop or fail a write.
+  - Conflicts are recorded per engine and propagated to parent engines, so a run's
+    result lists nested conflicts with full paths.
   Writes to the same key by two stages of one parallel layer are a conflict: those stages
   are FAILED and their patches are not applied. Across layers, later writes overwrite
   earlier values.

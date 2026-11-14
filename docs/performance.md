@@ -27,8 +27,9 @@ cancellation.
     the value map, the immutable copy, and a name index for the type-clash check. The
     merge also rebuilt a name map of every key.
   - *Now:* a context is a chain of small levels. Applying a patch adds one level holding
-    only its writes, with its own name index, and the chain is flattened every 16
-    levels. Clash checks use the new `ContextView.keyNamed(name)` instead of scanning.
+    only its writes, with its own name index. The chain was flattened every 16 levels;
+    that depth is now configurable and defaults to never (see "Flatten depth" below).
+    Clash checks use the new `ContextView.keyNamed(name)` instead of scanning.
   - *Result:* 200 sequential writes run 2.5× faster and allocate 5× less. The cost per
     layer no longer grows with the context.
 - **Listeners doubled a run's cost.**
@@ -41,6 +42,35 @@ cancellation.
     finishes. Run ids come from `ThreadLocalRandom`.
   - *Result:* a listener adds about 10 µs to a 10-stage run, instead of 55 µs. Events can
     now reach listeners up to about 10 ms late; their timestamps are unchanged.
+
+## Flatten depth
+
+`BatonConfig.contextFlattenDepth` trades write cost against read cost.
+`ContextDepthBenchmark` runs 200 sequential stages, each writing one key, at several
+depths. In `writesAndReads`, every stage also reads every key written so far, the worst
+case for a deep chain. Runs used 8 measurement iterations.
+
+| Depth | `writes` | `writesAndReads` |
+|---|---|---|
+| 0 (never, default) | 1,268 µs · 650 KB | 5,402 µs · 654 KB |
+| 4 | 1,205 µs · 1.19 MB | 1,458 µs · 1.20 MB |
+| 16 | 1,107 µs · 799 KB | 1,679 µs · 820 KB |
+| 64 | 1,113 µs · 707 KB | 2,855 µs · 720 KB |
+
+- **When reads dominate:** small depths read fastest but copy more often.
+- **When writes dominate:** never flattening uses the least memory.
+
+[configuration.md](configuration.md#choosing-contextflattendepth) turns this into
+guidance.
+
+With configuration in place, the engine benchmarks at default settings:
+- `sequential10`: 49.8 µs · 23.8 KB
+- `parallel100`: 72.9 µs · 164 KB
+- `nested5`: 28.8 µs · 23.4 KB
+- `sequential10WithListener`: 57.3 µs · 27 KB
+
+All are within noise of the numbers above. The conflict resolver allocates nothing
+unless a conflict must drop or fail a write.
 
 ## Known costs, not changed
 

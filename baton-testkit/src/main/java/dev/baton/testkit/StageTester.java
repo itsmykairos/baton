@@ -1,5 +1,6 @@
 package dev.baton.testkit;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -63,5 +64,19 @@ public final class StageTester {
      */
     public static ContextView runAndApply(Stage stage, ContextView input) throws Exception {
         return run(stage, input).applyTo(input);
+    }
+
+    /**
+     * Runs {@code stage} and applies its patch to {@code input} with the config's
+     * flatten depth and type-clash policy, as a pipeline using that config would.
+     *
+     * @param stage the stage under test
+     * @param input the context snapshot the stage reads
+     * @param config the settings to apply the patch with
+     * @return {@code input} with the stage's writes applied
+     * @throws Exception as for {@link #run(Stage, ContextView)}
+     */
+    public static ContextView runAndApply(Stage stage, ContextView input, BatonConfig config) throws Exception {
+        return run(stage, input).applyTo(input, config);
     }
 }

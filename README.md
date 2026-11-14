@@ -143,6 +143,27 @@ StageOptions.defaults().skipIfInputsMissing();          // missing requiredReads
 - The child's stage results appear in `StageResult.children()`.
 - `isSuccessful()` and `hasFailures()` check those children at every level.
 
+## Configuration
+
+Behaviour that used to be fixed is now set with `BatonConfig`: context flattening,
+key-conflict policies, parallelism limits, thread factory, default stage options and
+event delivery. An app config passed to `Pipeline.builder(appConfig)` applies to every
+pipeline. Each pipeline (`Builder.config`), run (`RunOptions.withConfig`) and stage can
+override it. Unset settings keep today's behaviour.
+
+```java
+static final BatonConfig APP = BatonConfig.builder()
+        .contextFlattenDepth(16)                              // default 0 = never flatten
+        .layerConflictPolicy(LayerConflictPolicy.LAST_WINS)   // default FAIL
+        .overwritePolicy(OverwritePolicy.KEEP_EXISTING)       // default OVERRIDE
+        .maxParallelStages(32)
+        .build();
+```
+
+Every key conflict is listed in `PipelineResult.conflicts()` and sent as a
+`ContextConflict` event. [docs/configuration.md](docs/configuration.md) lists every
+setting, its scope and precedence, and how to choose a flatten depth.
+
 ## Observability
 
 Runs emit events (`RunStarted`, `StageStarted`, `StageFinished`, `RunFinished`, in

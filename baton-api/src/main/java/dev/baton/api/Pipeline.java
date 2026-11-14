@@ -74,6 +74,20 @@ public interface Pipeline {
         return PipelineProvider.load().builder();
     }
 
+    /**
+     * Creates a builder whose pipeline starts from the application's settings.
+     * Keep one app-wide config and pass it to every builder.
+     *
+     * @param appConfig the application's settings; the builder's own
+     *                  {@link Builder#config} overlays them
+     * @return a new builder
+     * @throws IllegalStateException if no runtime is available
+     * @see BatonConfig
+     */
+    static Builder builder(BatonConfig appConfig) {
+        return builder().config(java.util.Objects.requireNonNull(appConfig, "appConfig"));
+    }
+
     /** Builds a {@link Pipeline}. Stage and layer ids must be unique and non-blank. */
     interface Builder {
 
@@ -85,6 +99,18 @@ public interface Pipeline {
          * @return this builder
          */
         Builder name(String name);
+
+        /**
+         * Overlays settings for this pipeline on those set so far (for example the
+         * app config from {@link Pipeline#builder(BatonConfig)}). May be called more
+         * than once; later calls take precedence. Settings are resolved at
+         * {@link #build()}, so the order relative to stages does not matter.
+         *
+         * @param overrides the settings to overlay
+         * @return this builder
+         * @see BatonConfig
+         */
+        Builder config(BatonConfig overrides);
 
         /**
          * Adds a listener that receives the events of every run of this pipeline.
@@ -99,7 +125,7 @@ public interface Pipeline {
 
         /**
          * Limits every run of this pipeline; {@link RunOptions#withTimeout} overrides
-         * it for one run. When it expires, active stages time out, no further layer
+         * it for one run. Shortcut for {@link BatonConfig.Builder#runTimeout}. When it expires, active stages time out, no further layer
          * starts, and the run ends {@link PipelineStatus#TIMED_OUT}. When this
          * pipeline runs nested, its timeout is also capped by the nested stage's
          * deadline.
@@ -110,7 +136,8 @@ public interface Pipeline {
         Builder timeout(java.time.Duration timeout);
 
         /**
-         * Adds a sequential stage using default options.
+         * Adds a sequential stage using the pipeline's
+         * {@link BatonConfig#defaultStageOptions() default stage options}.
          *
          * @param id unique stage id
          * @param stage the stage
@@ -160,7 +187,8 @@ public interface Pipeline {
     interface ParallelBuilder {
 
         /**
-         * Adds a stage to this parallel layer using default options.
+         * Adds a stage to this parallel layer using the pipeline's
+         * {@link BatonConfig#defaultStageOptions() default stage options}.
          *
          * @param id unique stage id
          * @param stage the stage

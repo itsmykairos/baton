@@ -1,6 +1,8 @@
 package dev.baton.examples;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
+import dev.baton.api.LayerConflictPolicy;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.RetryPolicy;
@@ -27,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>a flaky payment call retried with backoff;</li>
  *   <li>a timeout for the whole run;</li>
  *   <li>conditional stages: one skipped by a condition, one by a missing input;</li>
+ *   <li>one application-wide {@link BatonConfig} shared by every pipeline;</li>
  *   <li>a nested pipeline whose stages are reported as children.</li>
  * </ul>
  *
@@ -43,12 +46,22 @@ public final class BatonExample {
     static final ContextKey<String> RECEIPT = ContextKey.of("receipt", String.class);
     static final ContextKey<String> PHONE = ContextKey.of("phone", String.class);
 
+    /**
+     * The application's settings, shared by every pipeline it builds. Each pipeline
+     * (Pipeline.Builder.config) or run (RunOptions.withConfig) can override them.
+     */
+    static final BatonConfig APP_CONFIG = BatonConfig.builder()
+            .contextFlattenDepth(16)                            // long pipelines read a lot
+            .layerConflictPolicy(LayerConflictPolicy.FAIL)      // two stages writing one key is a bug
+            .maxParallelStages(8)                               // be gentle with downstream services
+            .build();
+
     private BatonExample() {
     }
 
     public static void main(String[] args) throws InterruptedException {
         AtomicInteger gatewayCalls = new AtomicInteger();
-        Pipeline payment = Pipeline.builder()
+        Pipeline payment = Pipeline.builder(APP_CONFIG)
                 .stage("authorize", context -> {
                     if (gatewayCalls.incrementAndGet() == 1) {
                         throw new IOException("payment gateway unavailable"); // first call fails
@@ -65,7 +78,7 @@ public final class BatonExample {
                                 .build()))
                 .build();
 
-        Pipeline checkout = Pipeline.builder()
+        Pipeline checkout = Pipeline.builder(APP_CONFIG)
                 .name("checkout")
                 .timeout(Duration.ofSeconds(5))
                 .stage("load-order", context -> ContextPatch.builder()

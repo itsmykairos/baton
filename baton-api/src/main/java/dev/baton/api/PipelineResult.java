@@ -48,6 +48,19 @@ public interface PipelineResult {
     boolean hasFailures();
 
     /**
+     * Context write conflicts found in this run, including nested pipelines, in the
+     * order they were resolved. Each records how the configured policy resolved it.
+     *
+     * @return the conflicts; empty if there were none
+     * @see LayerConflictPolicy
+     * @see OverwritePolicy
+     * @see TypeClashPolicy
+     */
+    default List<KeyConflict> conflicts() {
+        return List.of();
+    }
+
+    /**
      * Primary pipeline-level failure, if present.
      *
      * @return the failure that ended the run, for FAILED, TIMED_OUT and CANCELLED

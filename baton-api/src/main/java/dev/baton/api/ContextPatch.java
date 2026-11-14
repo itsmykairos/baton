@@ -64,27 +64,54 @@ public final class ContextPatch {
      * existing values: a later layer may overwrite a value written by an earlier
      * layer or supplied in the pipeline input.
      *
+     * <p>Uses the default settings: the context is never flattened, and a type
+     * clash is rejected. See {@link #applyTo(ContextView, BatonConfig)}.</p>
+     *
      * @param base the context to apply this patch to
      * @return a new context with the writes applied
      * @throws ContextMergeException if a written key's name is already used in
      *         {@code base} with a different type
      */
     public ContextView applyTo(ContextView base) {
+        return applyTo(base, BatonConfig.defaults());
+    }
+
+    /**
+     * Returns {@code base} with this patch's writes applied, using the config's
+     * {@link BatonConfig#contextFlattenDepth() flatten depth} and
+     * {@link BatonConfig#typeClashPolicy() type-clash policy}. Written keys replace
+     * existing values.
+     *
+     * @param base the context to apply this patch to
+     * @param config the settings to apply with
+     * @return a new context with the writes applied
+     * @throws ContextMergeException if a written key's name is already used in
+     *         {@code base} with a different type and the policy is
+     *         {@link TypeClashPolicy#FAIL}
+     */
+    public ContextView applyTo(ContextView base, BatonConfig config) {
         Objects.requireNonNull(base, "base");
+        Objects.requireNonNull(config, "config");
+        boolean replaceTypes = config.typeClashPolicy() == TypeClashPolicy.REPLACE;
 
         if (base instanceof ImmutableContextView view) {
             // Adds one small level instead of copying the whole context.
-            return view.with(writes);
+            return view.with(writes, config.contextFlattenDepth(), replaceTypes);
         }
+        java.util.List<ContextKey<?>> replaced = new java.util.ArrayList<>();
         for (ContextKey<?> written : writes.keySet()) {
             ContextKey<?> existing = base.keyNamed(written.name()).orElse(null);
             if (existing != null && existing.clashesWith(written)) {
-                throw new ContextMergeException(
-                        ImmutableContextView.typeClash(existing, written).getMessage());
+                if (!replaceTypes) {
+                    throw new ContextMergeException(
+                            ImmutableContextView.typeClash(existing, written).getMessage());
+                }
+                replaced.add(existing);
             }
         }
 
         Map<ContextKey<?>, Object> merged = copyValues(base);
+        replaced.forEach(merged::remove);
         merged.putAll(writes);
 
         return ImmutableContextView.copyOf(merged);

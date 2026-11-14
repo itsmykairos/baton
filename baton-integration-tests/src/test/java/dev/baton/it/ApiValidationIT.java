@@ -101,6 +101,36 @@ class ApiValidationIT {
     }
 
     @Test
+    void batonConfigValidatesArgumentsAndLayersSettings() {
+        var builder = dev.baton.api.BatonConfig.builder();
+        assertThatThrownBy(() -> builder.contextFlattenDepth(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.maxParallelStages(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.maxChildTasks(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.eventBufferCapacity(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.eventBatchInterval(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.runTimeout(Duration.ZERO)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.defaultPipelineName(" ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.layerConflictPolicy(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.clock(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Pipeline.builder((dev.baton.api.BatonConfig) null))
+                .isInstanceOf(NullPointerException.class);
+
+        var defaults = dev.baton.api.BatonConfig.defaults();
+        assertThat(defaults.contextFlattenDepth()).isEqualTo(dev.baton.api.BatonConfig.NEVER_FLATTEN);
+        assertThat(defaults.layerConflictPolicy()).isEqualTo(dev.baton.api.LayerConflictPolicy.FAIL);
+        assertThat(defaults.overwritePolicy()).isEqualTo(dev.baton.api.OverwritePolicy.OVERRIDE);
+        assertThat(defaults.maxParallelStages()).isEqualTo(dev.baton.api.BatonConfig.UNLIMITED);
+
+        var app = dev.baton.api.BatonConfig.builder().contextFlattenDepth(16).maxParallelStages(4).build();
+        var pipeline = dev.baton.api.BatonConfig.builder().maxParallelStages(8).build();
+        var merged = app.merge(pipeline);
+        assertThat(merged.contextFlattenDepth()).isEqualTo(16);
+        assertThat(merged.maxParallelStages()).isEqualTo(8);
+        assertThat(merged.toBuilder().maxParallelStages(2).build().contextFlattenDepth()).isEqualTo(16);
+    }
+
+    @Test
     void backoffGrowsAndIsCapped() {
         var policy = dev.baton.api.RetryPolicy.maxAttempts(10)
                 .withBackoff(Duration.ofMillis(100), 2.0, Duration.ofMillis(350));

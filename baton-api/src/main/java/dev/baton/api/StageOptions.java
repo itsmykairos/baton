@@ -9,7 +9,7 @@ import java.util.function.Predicate;
 public final class StageOptions {
 
     private static final StageOptions DEFAULTS =
-            new StageOptions(null, FailurePolicy.FAIL_FAST, RetryPolicy.none(), null, null, false);
+            new StageOptions(null, FailurePolicy.FAIL_FAST, RetryPolicy.none(), null, null, false, null);
 
     private final Duration timeout;
     private final FailurePolicy failurePolicy;
@@ -17,6 +17,7 @@ public final class StageOptions {
     private final StageFallback fallback;
     private final Predicate<ContextView> condition;
     private final boolean skipIfInputsMissing;
+    private final OverwritePolicy overwritePolicy;
 
     private StageOptions(
             Duration timeout,
@@ -24,7 +25,8 @@ public final class StageOptions {
             RetryPolicy retry,
             StageFallback fallback,
             Predicate<ContextView> condition,
-            boolean skipIfInputsMissing
+            boolean skipIfInputsMissing,
+            OverwritePolicy overwritePolicy
     ) {
         if (timeout != null &&
                 (timeout.isZero() || timeout.isNegative())) {
@@ -39,6 +41,7 @@ public final class StageOptions {
         this.fallback = fallback;
         this.condition = condition;
         this.skipIfInputsMissing = skipIfInputsMissing;
+        this.overwritePolicy = overwritePolicy;
     }
 
     /**
@@ -60,7 +63,7 @@ public final class StageOptions {
      */
     public StageOptions withTimeout(Duration timeout) {
         return new StageOptions(Objects.requireNonNull(timeout, "timeout"), failurePolicy, retry, fallback,
-                condition, skipIfInputsMissing);
+                condition, skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -70,7 +73,7 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withFailurePolicy(FailurePolicy failurePolicy) {
-        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing);
+        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -81,7 +84,7 @@ public final class StageOptions {
      */
     public StageOptions withRetry(RetryPolicy retry) {
         return new StageOptions(timeout, failurePolicy, Objects.requireNonNull(retry, "retry"), fallback,
-                condition, skipIfInputsMissing);
+                condition, skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -93,7 +96,7 @@ public final class StageOptions {
      */
     public StageOptions withFallback(StageFallback fallback) {
         return new StageOptions(timeout, failurePolicy, retry, Objects.requireNonNull(fallback, "fallback"),
-                condition, skipIfInputsMissing);
+                condition, skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -111,7 +114,7 @@ public final class StageOptions {
      */
     public StageOptions withCondition(Predicate<ContextView> condition) {
         return new StageOptions(timeout, failurePolicy, retry, fallback,
-                Objects.requireNonNull(condition, "condition"), skipIfInputsMissing);
+                Objects.requireNonNull(condition, "condition"), skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -122,7 +125,7 @@ public final class StageOptions {
      * @return a copy that skips on missing inputs
      */
     public StageOptions skipIfInputsMissing() {
-        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, true);
+        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, true, overwritePolicy);
     }
 
     /** {@return the timeout, if any} */
@@ -138,6 +141,23 @@ public final class StageOptions {
     /** {@return the retry policy} */
     public RetryPolicy retry() {
         return retry;
+    }
+
+    /**
+     * Overrides the pipeline's {@link BatonConfig#overwritePolicy()} for this stage's
+     * writes to keys already in the context.
+     *
+     * @param policy the policy for this stage
+     * @return a copy with this policy
+     */
+    public StageOptions withOverwritePolicy(OverwritePolicy policy) {
+        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing,
+                Objects.requireNonNull(policy, "policy"));
+    }
+
+    /** {@return this stage's overwrite policy, if it overrides the pipeline's} */
+    public Optional<OverwritePolicy> overwritePolicy() {
+        return Optional.ofNullable(overwritePolicy);
     }
 
     /** {@return the run condition, if any} */

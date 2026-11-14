@@ -1,10 +1,14 @@
 package dev.baton.core.execution;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.FailurePolicy;
+import dev.baton.api.KeyConflict;
+import dev.baton.api.LayerConflictPolicy;
+import dev.baton.api.OverwritePolicy;
 import dev.baton.api.NestedPipelineStage;
 import dev.baton.api.PipelineExecutionException;
 import dev.baton.api.PipelineStatus;
@@ -14,6 +18,7 @@ import dev.baton.api.StageAttemptTimeoutException;
 import dev.baton.api.StageFallback;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
+import dev.baton.api.TypeClashPolicy;
 import dev.baton.api.WorkerTermination;
 import dev.baton.core.DefaultPipeline;
 import dev.baton.api.event.StagePath;
@@ -28,7 +33,9 @@ import dev.baton.core.result.DefaultStageResult;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,48 +72,40 @@ final class ExecutionEngine {
     private final DeadlineScheduler deadlines;
     private final ExecutionControl control;
     private final Deadline inherited;
-    private final RunEvents events;
+    /** Pipeline-scoped settings: this pipeline's own config (plus the run's, if outermost). */
+    private final BatonConfig config;
+    /** Run-scoped settings of the outermost run. */
+    private final BatonConfig runConfig;
+    /** Where events go: the outermost run's listeners, and a nested pipeline's own if enabled. */
+    private final List<Observer> observers;
+    private final boolean eventsEnabled;
     /** Path of the nested stage running this engine; null for the outermost run. */
     private final StagePath parentPath;
+    /** Receives conflicts recorded here, so parents can report their children's too. */
+    private final Consumer<KeyConflict> parentConflicts;
 
     private final Object state = new Object();
     private ContextView context;
     private final List<StageResult> results = new ArrayList<>();
     private final Set<ContextKey<?>> writtenKeys = new LinkedHashSet<>();
+    private final List<KeyConflict> conflicts = new ArrayList<>();
     private ActiveLayer activeLayer;
 
     /** Per-stage attempt state, so results can report attempts and nested children. */
     private final Map<TrackedTask<?>, StageRun> stageRuns = new ConcurrentHashMap<>();
 
-    ExecutionEngine(
-            PipelineDefinition definition,
-            ExecutorService executor,
-            DeadlineScheduler deadlines,
-            ExecutionControl control
-    ) {
-        this(definition, executor, deadlines, control, RunEvents.NONE);
-    }
-
-    ExecutionEngine(
-            PipelineDefinition definition,
-            ExecutorService executor,
-            DeadlineScheduler deadlines,
-            ExecutionControl control,
-            RunEvents events
-    ) {
-        this(definition, executor, deadlines, control, Deadline.unlimited(), events, null);
-    }
-
-    /** The outermost engine of a run limited by {@code runDeadline}. */
+    /** The outermost engine of a run limited by {@code runDeadline}, with the run's settings. */
     ExecutionEngine(
             PipelineDefinition definition,
             ExecutorService executor,
             DeadlineScheduler deadlines,
             ExecutionControl control,
             RunEvents events,
-            Deadline runDeadline
+            Deadline runDeadline,
+            BatonConfig config
     ) {
-        this(definition, executor, deadlines, control, runDeadline, events, null);
+        this(definition, executor, deadlines, control, runDeadline, config, config,
+                List.of(new Observer(events, null)), null, null);
     }
 
     private ExecutionEngine(
@@ -115,16 +114,23 @@ final class ExecutionEngine {
             DeadlineScheduler deadlines,
             ExecutionControl control,
             Deadline inherited,
-            RunEvents events,
-            StagePath parentPath
+            BatonConfig config,
+            BatonConfig runConfig,
+            List<Observer> observers,
+            StagePath parentPath,
+            Consumer<KeyConflict> parentConflicts
     ) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
         this.control = Objects.requireNonNull(control, "control");
         this.inherited = Objects.requireNonNull(inherited, "inherited");
-        this.events = Objects.requireNonNull(events, "events");
+        this.config = Objects.requireNonNull(config, "config");
+        this.runConfig = Objects.requireNonNull(runConfig, "runConfig");
+        this.observers = List.copyOf(observers);
+        this.eventsEnabled = this.observers.stream().anyMatch(observer -> observer.events().enabled());
         this.parentPath = parentPath;
+        this.parentConflicts = parentConflicts;
     }
 
     DefaultPipelineResult execute(ContextView input) {
@@ -141,19 +147,19 @@ final class ExecutionEngine {
                 }
 
                 LayerOutcome layerOutcome = executeLayer(layer, currentContext());
-                MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results(), currentContext());
+                MergeOutcome merge = resolveLayer(layer.stages(), layerOutcome.results(), currentContext());
                 synchronized (state) {
                     results.addAll(merge.results());
-                    context = merge.patch().applyTo(context);
+                    context = merge.patch().applyTo(context, config);
                     writtenKeys.addAll(merge.patch().writtenKeys());
                     activeLayer = null;
                 }
                 // Emitted after the merge so a conflict's FAILED status is what listeners see.
-                if (events.enabled()) {
+                if (eventsEnabled) {
                     List<StageResult> finalResults = merge.results();
                     for (int i = 0; i < finalResults.size(); i++) {
                         StageResult result = finalResults.get(i);
-                        events.stageFinished(pathOf(result.stageId()), result, layerOutcome.startedAt()[i]);
+                        emitStageFinished(result.stageId(), result, layerOutcome.startedAt()[i]);
                     }
                 }
 
@@ -193,7 +199,7 @@ final class ExecutionEngine {
             if (context == null) {
                 throw new IllegalStateException("Execution has not started");
             }
-            return new DefaultPipelineResult(status, context, snapshot(), failure);
+            return new DefaultPipelineResult(status, context, snapshot(), failure, List.copyOf(conflicts));
         }
     }
 
@@ -230,7 +236,10 @@ final class ExecutionEngine {
         synchronized (state) {
             ContextPatch.Builder builder = ContextPatch.builder();
             for (ContextKey<?> key : writtenKeys) {
-                putUntyped(builder, key, context);
+                // A key replaced by one of another type (TypeClashPolicy.REPLACE) is gone.
+                if (context.contains(key)) {
+                    putUntyped(builder, key, context);
+                }
             }
             return builder.build();
         }
@@ -253,7 +262,6 @@ final class ExecutionEngine {
             activeLayer = new ActiveLayer(stages, tasks, layerResults);
         }
         LinkedBlockingQueue<Integer> finished = new LinkedBlockingQueue<>();
-        int pending = 0;
 
         // Settle stages that will not run (blocked, skipped, failed condition) before
         // submitting any; a FAIL_FAST condition failure then starts nothing.
@@ -276,35 +284,14 @@ final class ExecutionEngine {
             return new LayerOutcome(List.of(layerResults), trigger, startedAt);
         }
 
-        // Submit all runnable stages before observing any result.
+        // Start runnable stages, at most maxParallelStages at a time; the rest wait.
+        Deque<Integer> waiting = new ArrayDeque<>();
         for (int i = 0; i < size; i++) {
-            StageNode stage = stages.get(i);
-            if (layerResults[i] != null) {
-                continue;
-            }
-            if (control.isCancelled()) {
-                record(layerResults, i, cancelledBeforeStart(stage));
-            } else {
-                try {
-                    int index = i;
-                    if (events.enabled()) {
-                        startedAt[i] = events.stageStarted(pathOf(stage.id()));
-                    }
-                    TrackedTask<StageExecution> task = submitStage(stage, context, registered -> {
-                        synchronized (state) {
-                            tasks[index] = registered;
-                        }
-                    });
-                    task.onDone(() -> finished.add(index));
-                    pending++;
-                } catch (RejectedExecutionException rejected) {
-                    if (!control.isCancelled()) {
-                        throw rejected;
-                    }
-                    record(layerResults, i, cancelledBeforeStart(stage));
-                }
+            if (layerResults[i] == null) {
+                waiting.add(i);
             }
         }
+        int pending = startStages(waiting, 0, stages, context, tasks, layerResults, startedAt, finished);
 
         // Observe stages in completion order so a FAIL_FAST failure can cancel
         // siblings immediately. Results are stored at their definition index.
@@ -320,6 +307,10 @@ final class ExecutionEngine {
                     trigger = result;
                     cancelUnfinished(tasks, layerResults);
                 }
+                if (trigger == null) {
+                    pending += startStages(waiting, pending, stages, context, tasks, layerResults,
+                            startedAt, finished);
+                }
             }
         } catch (InterruptedException interrupted) {
             // Every registered task is logically complete once cancel() returns, so
@@ -327,13 +318,63 @@ final class ExecutionEngine {
             // so real outcomes (such as TIMED_OUT) are not replaced by CANCELLED.
             control.cancel();
             for (int i = 0; i < size; i++) {
-                if (layerResults[i] == null) {
+                if (layerResults[i] == null && tasks[i] != null) {
                     record(layerResults, i, awaitCancelledStage(stages.get(i), tasks[i]));
                 }
             }
             Thread.currentThread().interrupt();
         }
+        // Stages still waiting for a slot never start once the layer is stopping.
+        for (Integer i : waiting) {
+            record(layerResults, i, cancelledBeforeStart(stages.get(i)));
+        }
         return new LayerOutcome(List.of(layerResults), trigger, startedAt);
+    }
+
+    /**
+     * Starts waiting stages until {@code running + started} reaches the layer's
+     * {@link BatonConfig#maxParallelStages()} limit.
+     *
+     * @return how many stages were started
+     */
+    private int startStages(
+            Deque<Integer> waiting,
+            int running,
+            List<StageNode> stages,
+            ContextView context,
+            TrackedTask<StageExecution>[] tasks,
+            StageResult[] layerResults,
+            Instant[] startedAt,
+            LinkedBlockingQueue<Integer> finished
+    ) {
+        int limit = config.maxParallelStages();
+        int started = 0;
+        while (!waiting.isEmpty() && (limit == BatonConfig.UNLIMITED || running + started < limit)) {
+            int index = waiting.poll();
+            StageNode stage = stages.get(index);
+            if (control.isCancelled()) {
+                record(layerResults, index, cancelledBeforeStart(stage));
+                continue;
+            }
+            try {
+                if (eventsEnabled) {
+                    startedAt[index] = emitStageStarted(stage.id());
+                }
+                TrackedTask<StageExecution> task = submitStage(stage, context, registered -> {
+                    synchronized (state) {
+                        tasks[index] = registered;
+                    }
+                });
+                task.onDone(() -> finished.add(index));
+                started++;
+            } catch (RejectedExecutionException rejected) {
+                if (!control.isCancelled()) {
+                    throw rejected;
+                }
+                record(layerResults, index, cancelledBeforeStart(stage));
+            }
+        }
+        return started;
     }
 
     private void record(StageResult[] layerResults, int index, StageResult result) {
@@ -413,7 +454,7 @@ final class ExecutionEngine {
                 if (delay.toNanos() >= stageDeadline.remainingNanos()) {
                     throw failure;
                 }
-                events.stageRetrying(pathOf(node.id()), attempt, failure, delay);
+                emitRetrying(node.id(), attempt, failure, delay);
                 if (!delay.isZero()) {
                     Thread.sleep(delay);
                 }
@@ -474,23 +515,37 @@ final class ExecutionEngine {
         if (node.stage() instanceof NestedPipelineStage nested
                 && nested.pipeline() instanceof DefaultPipeline child) {
             ExecutionControl childControl = new ExecutionControl();
-            Deadline childDeadline = child.definition().timeout()
+            PipelineDefinition childDefinition = child.definition();
+            // Pipeline-scoped settings come from the child's own config.
+            BatonConfig childConfig = childDefinition.config();
+            Deadline childDeadline = childConfig.runTimeout()
                     .map(Deadline::after)
                     .map(deadline::min)
                     .orElse(deadline);
-            // The child's own listeners are not used: its events go to the outermost run.
+            // The child's events go to every observer of this engine, with longer paths;
+            // its own builder listeners are used only if notifyNestedListeners is on.
+            List<Observer> childObservers = new ArrayList<>();
+            for (Observer observer : observers) {
+                childObservers.add(new Observer(observer.events(), observer.pathOf(node.id())));
+            }
+            RunEvents ownEvents = RunEvents.NONE;
+            if (runConfig.notifyNestedListeners() && !childDefinition.listeners().isEmpty()) {
+                ownEvents = RunEvents.create(childDefinition.name(), childDefinition.listeners(), runConfig);
+                childObservers.add(new Observer(ownEvents, null));
+            }
             ExecutionEngine childEngine = new ExecutionEngine(
-                    child.definition(), executor, deadlines, childControl, childDeadline,
-                    events, pathOf(node.id()));
+                    childDefinition, executor, deadlines, childControl, childDeadline,
+                    childConfig, runConfig, childObservers, pathOf(node.id()), this::recordChildConflict);
             run.childEngine = childEngine;
             cancel.set(childControl::cancel);
             if (run.isDone()) {
                 childControl.cancel();
                 throw new CancellationException("Stage was cancelled");
             }
-            return executeNestedBody(childEngine, context);
+            return executeNestedBody(childEngine, context, ownEvents);
         }
-        DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines);
+        DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines,
+                config.maxChildTasks(), config.unjoinedChildFailure());
         cancel.set(childTasks::close);
         if (run.isDone()) {
             childTasks.close();
@@ -527,10 +582,18 @@ final class ExecutionEngine {
      * hands back everything it wrote, even if some of its own stages were blocked
      * or failed under CONTINUE; those show up in the nested stage's children.
      */
-    private ContextPatch executeNestedBody(ExecutionEngine childEngine, ContextView context)
+    private ContextPatch executeNestedBody(ExecutionEngine childEngine, ContextView context, RunEvents ownEvents)
             throws Exception {
         control.throwIfCancelled();
-        DefaultPipelineResult childResult = childEngine.execute(context);
+        ownEvents.runStarted();
+        DefaultPipelineResult childResult;
+        try {
+            childResult = childEngine.execute(context);
+        } catch (RuntimeException | Error failure) {
+            ownEvents.runFinished(PipelineStatus.FAILED, java.util.Optional.of(failure));
+            throw failure;
+        }
+        ownEvents.runFinished(childResult);
         return switch (childResult.status()) {
             case COMPLETED -> childEngine.writtenPatch();
             case CANCELLED -> throw new CancellationException("Nested pipeline was cancelled");
@@ -693,35 +756,144 @@ final class ExecutionEngine {
     }
 
     /**
-     * Merges the outputs of a layer's successful stages. A stage fails with a
-     * {@link ContextMergeException}, and its output is kept for diagnosis but not
-     * applied, when it wrote a key name that another stage in the same layer also
-     * wrote, or a key name the context already holds with a different type.
-     * Outputs of the other successful stages are applied.
+     * Resolves a layer's context writes according to the pipeline's conflict
+     * settings and returns the patch to apply. Every conflict found is recorded as a
+     * {@link KeyConflict}. In order:
+     * <ol>
+     *   <li>Same-layer conflicts ({@link LayerConflictPolicy}): two or more applied
+     *       stages wrote a key name. Equal values merge silently when
+     *       {@link BatonConfig#equalValuesConflict()} is false.</li>
+     *   <li>Type clashes ({@link TypeClashPolicy}): a write uses a name the context
+     *       holds with another type.</li>
+     *   <li>Overwrites ({@link OverwritePolicy}, per stage or pipeline): a write to a
+     *       key already in the context.</li>
+     * </ol>
+     * A stage with a FAIL resolution is FAILED with a {@link ContextMergeException}
+     * (its output kept for diagnosis, nothing of it applied). Other stages keep their
+     * status; their surviving writes are applied.
      */
-    private MergeOutcome mergeSuccessfulOutputs(List<StageResult> layerResults, ContextView base) {
-        Map<String, List<String>> writersByName = new LinkedHashMap<>();
-        for (StageResult result : layerResults) {
-            if (!isApplied(result.status())) {
-                continue;
+    private MergeOutcome resolveLayer(List<StageNode> stages, List<StageResult> layerResults, ContextView base) {
+        int size = layerResults.size();
+        // Allocation-free on the common path: patches are only copied for stages that
+        // lose a key, and problem lists only exist for stages that fail.
+        ContextPatch[] patches = new ContextPatch[size];
+        Map<String, List<Integer>> writersByName = null;
+        int appliedCount = 0;
+        for (int i = 0; i < size; i++) {
+            StageResult result = layerResults.get(i);
+            if (isApplied(result.status()) && result.output().isPresent() && !result.output().get().isEmpty()) {
+                patches[i] = result.output().get();
+                appliedCount++;
             }
-            result.output().ifPresent(patch -> patch.writtenKeys().forEach(key ->
-                    writersByName.computeIfAbsent(key.name(), ignored -> new ArrayList<>())
-                            .add(result.stageId())));
+        }
+        if (appliedCount > 1) {
+            writersByName = new LinkedHashMap<>();
+            for (int i = 0; i < size; i++) {
+                if (patches[i] != null) {
+                    for (ContextKey<?> key : patches[i].writtenKeys()) {
+                        writersByName.computeIfAbsent(key.name(), ignored -> new ArrayList<>(2)).add(i);
+                    }
+                }
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<String>[] problems = new List[size];
+        @SuppressWarnings("unchecked")
+        Set<String>[] dropped = new Set[size];
+
+        // 1. Same-layer conflicts.
+        if (writersByName != null) {
+            for (Map.Entry<String, List<Integer>> entry : writersByName.entrySet()) {
+                List<Integer> writers = entry.getValue();
+                if (writers.size() < 2) {
+                    continue;
+                }
+                String name = entry.getKey();
+                if (!config.equalValuesConflict() && allEqual(name, writers, patches)) {
+                    writers.subList(1, writers.size()).forEach(i -> drop(dropped, i, name));
+                    continue;
+                }
+                List<StagePath> paths = writers.stream()
+                        .map(i -> pathOf(layerResults.get(i).stageId())).toList();
+                List<String> ids = writers.stream().map(i -> layerResults.get(i).stageId()).toList();
+                switch (config.layerConflictPolicy()) {
+                    case FAIL -> {
+                        writers.forEach(i -> problem(problems, i, name + " also written in the same layer by " + ids));
+                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
+                                KeyConflict.Resolution.FAILED));
+                    }
+                    case FIRST_WINS -> {
+                        writers.subList(1, writers.size()).forEach(i -> drop(dropped, i, name));
+                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
+                                KeyConflict.Resolution.FIRST_WINS));
+                    }
+                    case LAST_WINS -> {
+                        writers.subList(0, writers.size() - 1).forEach(i -> drop(dropped, i, name));
+                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
+                                KeyConflict.Resolution.LAST_WINS));
+                    }
+                    case SKIP_KEY -> {
+                        writers.forEach(i -> drop(dropped, i, name));
+                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
+                                KeyConflict.Resolution.KEY_SKIPPED));
+                    }
+                }
+            }
         }
 
-        List<StageResult> adjusted = new ArrayList<>(layerResults.size());
-        List<ContextPatch> applied = new ArrayList<>();
+        // 2 and 3. Type clashes and overwrites against the context before this layer.
+        for (int i = 0; i < size; i++) {
+            if (patches[i] == null) {
+                continue;
+            }
+            OverwritePolicy overwrite = stages.get(i).options().overwritePolicy()
+                    .orElse(config.overwritePolicy());
+            for (ContextKey<?> key : patches[i].writtenKeys()) {
+                if (dropped[i] != null && dropped[i].contains(key.name())) {
+                    continue;
+                }
+                ContextKey<?> existing = base.keyNamed(key.name()).orElse(null);
+                if (existing == null) {
+                    continue;
+                }
+                StagePath path = pathOf(layerResults.get(i).stageId());
+                if (!existing.type().equals(key.type())) {
+                    if (config.typeClashPolicy() == TypeClashPolicy.FAIL) {
+                        problem(problems, i, key.name() + " already holds " + existing.type().getName()
+                                + ", not " + key.type().getName());
+                        recordConflict(new KeyConflict(KeyConflict.Kind.TYPE_CLASH, key.name(), List.of(path),
+                                KeyConflict.Resolution.FAILED));
+                    } else {
+                        recordConflict(new KeyConflict(KeyConflict.Kind.TYPE_CLASH, key.name(), List.of(path),
+                                KeyConflict.Resolution.REPLACED));
+                    }
+                    continue;
+                }
+                switch (overwrite) {
+                    case OVERRIDE -> { }
+                    case KEEP_EXISTING -> {
+                        drop(dropped, i, key.name());
+                        recordConflict(new KeyConflict(KeyConflict.Kind.OVERWRITE, key.name(), List.of(path),
+                                KeyConflict.Resolution.KEPT_EXISTING));
+                    }
+                    case FAIL -> {
+                        problem(problems, i, key.name() + " is already in the context");
+                        recordConflict(new KeyConflict(KeyConflict.Kind.OVERWRITE, key.name(), List.of(path),
+                                KeyConflict.Resolution.FAILED));
+                    }
+                }
+            }
+        }
+
+        List<StageResult> adjusted = new ArrayList<>(size);
+        List<ContextPatch> applied = new ArrayList<>(appliedCount);
         ContextMergeException firstConflict = null;
-        for (StageResult result : layerResults) {
-            List<String> problems = isApplied(result.status())
-                    ? result.output().map(patch -> conflictsOf(patch, writersByName, base))
-                            .orElse(List.of())
-                    : List.of();
-            if (!problems.isEmpty()) {
+        for (int i = 0; i < size; i++) {
+            StageResult result = layerResults.get(i);
+            if (problems[i] != null) {
                 ContextMergeException conflict = new ContextMergeException(
                         "Stage '" + result.stageId() + "' has conflicting context writes: "
-                                + String.join("; ", problems));
+                                + String.join("; ", problems[i]));
                 if (firstConflict == null) {
                     firstConflict = conflict;
                 }
@@ -732,32 +904,108 @@ final class ExecutionEngine {
                 ));
             } else {
                 adjusted.add(result);
-                if (isApplied(result.status())) {
-                    result.output().ifPresent(applied::add);
+                if (patches[i] != null) {
+                    applied.add(dropped[i] == null ? patches[i] : without(patches[i], dropped[i]));
                 }
             }
         }
-        return new MergeOutcome(adjusted, ContextPatch.merge(applied), firstConflict);
+        ContextPatch merged = applied.isEmpty() ? ContextPatch.empty()
+                : applied.size() == 1 ? applied.getFirst() : ContextPatch.merge(applied);
+        return new MergeOutcome(adjusted, merged, firstConflict);
     }
 
-    private static List<String> conflictsOf(
-            ContextPatch patch,
-            Map<String, List<String>> writersByName,
-            ContextView base
-    ) {
-        List<String> problems = new ArrayList<>();
-        for (ContextKey<?> key : patch.writtenKeys()) {
-            List<String> writers = writersByName.get(key.name());
-            if (writers.size() > 1) {
-                problems.add(key.name() + " also written in the same layer by " + writers);
-            }
-            ContextKey<?> existing = base.keyNamed(key.name()).orElse(null);
-            if (existing != null && !existing.type().equals(key.type())) {
-                problems.add(key.name() + " already holds " + existing.type().getName()
-                        + ", not " + key.type().getName());
+    @SuppressWarnings("unchecked")
+    private static boolean allEqual(String name, List<Integer> writers, ContextPatch[] patches) {
+        ContextKey<?> firstKey = null;
+        Object firstValue = null;
+        for (int i : writers) {
+            for (ContextKey<?> key : patches[i].writtenKeys()) {
+                if (!key.name().equals(name)) {
+                    continue;
+                }
+                Object value = patches[i].find((ContextKey<Object>) key).orElse(null);
+                if (firstKey == null) {
+                    firstKey = key;
+                    firstValue = value;
+                } else if (!firstKey.equals(key) || !Objects.equals(firstValue, value)) {
+                    return false;
+                }
             }
         }
-        return problems;
+        return true;
+    }
+
+    private static void drop(Set<String>[] dropped, int stage, String name) {
+        if (dropped[stage] == null) {
+            dropped[stage] = new java.util.HashSet<>();
+        }
+        dropped[stage].add(name);
+    }
+
+    private static void problem(List<String>[] problems, int stage, String problem) {
+        if (problems[stage] == null) {
+            problems[stage] = new ArrayList<>();
+        }
+        problems[stage].add(problem);
+    }
+
+    /** The patch without the writes of the dropped key names. */
+    @SuppressWarnings("unchecked")
+    private static ContextPatch without(ContextPatch patch, Set<String> droppedNames) {
+        ContextPatch.Builder builder = ContextPatch.builder();
+        for (ContextKey<?> key : patch.writtenKeys()) {
+            if (!droppedNames.contains(key.name())) {
+                ContextKey<Object> untyped = (ContextKey<Object>) key;
+                builder.put(untyped, patch.find(untyped).orElseThrow());
+            }
+        }
+        return builder.build();
+    }
+
+    /** Records a conflict found here, reports it to the parent engine, and emits it. */
+    private void recordConflict(KeyConflict conflict) {
+        recordChildConflict(conflict);
+        if (eventsEnabled) {
+            for (Observer observer : observers) {
+                observer.events().conflict(conflict);
+            }
+        }
+    }
+
+    /** Records a conflict found here or in a nested pipeline (already emitted there). */
+    private void recordChildConflict(KeyConflict conflict) {
+        synchronized (state) {
+            conflicts.add(conflict);
+        }
+        if (parentConflicts != null) {
+            parentConflicts.accept(conflict);
+        }
+    }
+
+    private Instant emitStageStarted(String stageId) {
+        Instant first = null;
+        for (Observer observer : observers) {
+            Instant at = observer.events().stageStarted(observer.pathOf(stageId));
+            if (first == null) {
+                first = at;
+            }
+        }
+        return first;
+    }
+
+    private void emitStageFinished(String stageId, StageResult result, Instant startedAt) {
+        for (Observer observer : observers) {
+            observer.events().stageFinished(observer.pathOf(stageId), result, startedAt);
+        }
+    }
+
+    private void emitRetrying(String stageId, int attempt, Throwable failure, Duration delay) {
+        if (!eventsEnabled) {
+            return;
+        }
+        for (Observer observer : observers) {
+            observer.events().stageRetrying(observer.pathOf(stageId), attempt, failure, delay);
+        }
     }
 
     private StagePath pathOf(String stageId) {
@@ -802,6 +1050,13 @@ final class ExecutionEngine {
     }
 
     private record StageExecution(ContextPatch patch, Duration duration) { }
+
+    /** An event destination, and the path prefix its stage paths get (null for none). */
+    private record Observer(RunEvents events, StagePath prefix) {
+        StagePath pathOf(String stageId) {
+            return prefix == null ? StagePath.of(stageId) : prefix.child(stageId);
+        }
+    }
 
     /** A replaceable cancellation action: whatever the current attempt must cancel. */
     private static final class CancelSlot {

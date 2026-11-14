@@ -1,6 +1,8 @@
 package dev.baton.core.execution;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.StageTasks;
+import dev.baton.api.UnjoinedChildFailurePolicy;
 import dev.baton.api.TaskHandle;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
@@ -10,14 +12,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Semaphore;
 
 /** Child tasks owned by one stage; closing the scope cancels unfinished children. */
 final class DefaultStageTasks implements StageTasks, AutoCloseable {
+
+    private static final System.Logger LOG = System.getLogger("dev.baton");
 
     private final ExecutorService executor;
     private final Deadline deadline;
     private final DeadlineScheduler deadlines;
     private final List<TrackedTaskHandle<?>> handles = new ArrayList<>();
+    /** Limits concurrently running children; null when unlimited. */
+    private final Semaphore slots;
+    private final UnjoinedChildFailurePolicy unjoinedFailure;
     private boolean closed;
 
     DefaultStageTasks(
@@ -25,9 +33,21 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             Deadline deadline,
             DeadlineScheduler deadlines
     ) {
+        this(executor, deadline, deadlines, BatonConfig.UNLIMITED, UnjoinedChildFailurePolicy.FAIL_STAGE);
+    }
+
+    DefaultStageTasks(
+            ExecutorService executor,
+            Deadline deadline,
+            DeadlineScheduler deadlines,
+            int maxChildTasks,
+            UnjoinedChildFailurePolicy unjoinedFailure
+    ) {
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadline = Objects.requireNonNull(deadline, "deadline");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
+        this.slots = maxChildTasks == BatonConfig.UNLIMITED ? null : new Semaphore(maxChildTasks);
+        this.unjoinedFailure = Objects.requireNonNull(unjoinedFailure, "unjoinedFailure");
     }
 
     @Override
@@ -36,11 +56,22 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             throw new IllegalStateException("Stage task scope is closed");
         }
 
+        Objects.requireNonNull(task, "task");
+        // fork() never blocks: a limited child waits for a slot on its own thread,
+        // interruptibly and within the stage's deadline.
+        Callable<T> body = slots == null ? task : () -> {
+            slots.acquire();
+            try {
+                return task.call();
+            } finally {
+                slots.release();
+            }
+        };
         TrackedTask<T> tracked = TrackedTask.submit(
                 executor,
                 deadline,
                 deadlines,
-                Objects.requireNonNull(task, "task")
+                body
         );
         TrackedTaskHandle<T> handle = new TrackedTaskHandle<>(tracked);
         handles.add(handle);
@@ -92,6 +123,11 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             } else if (first != failure) {
                 first.addSuppressed(failure);
             }
+        }
+        if (first != null && unjoinedFailure == UnjoinedChildFailurePolicy.IGNORE) {
+            LOG.log(System.Logger.Level.WARNING,
+                    "Ignoring failure of an unjoined child task (unjoinedChildFailure=IGNORE)", first);
+            return;
         }
         if (first instanceof Exception exception) {
             throw exception;

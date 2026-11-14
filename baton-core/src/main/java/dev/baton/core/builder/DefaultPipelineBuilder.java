@@ -1,5 +1,6 @@
 package dev.baton.core.builder;
 
+import dev.baton.api.BatonConfig;
 import dev.baton.api.Pipeline;
 import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
@@ -21,8 +22,10 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
 
     private final List<LayerDefinition> layers = new ArrayList<>();
     private final List<PipelineListener> listeners = new ArrayList<>();
-    private String name = PipelineDefinition.DEFAULT_NAME;
-    private Duration timeout;
+    private String name;
+    private BatonConfig config = BatonConfig.defaults();
+    /** Ids of stages added without options; they get the config's defaults at build(). */
+    private final Set<String> inheritOptions = new HashSet<>();
 
     private final Set<String> layerIds = new HashSet<>();
     private final Set<String> stageIds = new HashSet<>();
@@ -38,14 +41,16 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
     }
 
     @Override
+    public DefaultPipelineBuilder config(BatonConfig overrides) {
+        ensureOpen();
+        config = config.merge(Objects.requireNonNull(overrides, "overrides"));
+        return this;
+    }
+
+    @Override
     public DefaultPipelineBuilder timeout(Duration timeout) {
         ensureOpen();
-        Objects.requireNonNull(timeout, "timeout");
-        if (timeout.isZero() || timeout.isNegative()) {
-            throw new IllegalArgumentException("timeout must be positive");
-        }
-        this.timeout = timeout;
-        return this;
+        return config(BatonConfig.builder().runTimeout(timeout).build());
     }
 
     @Override
@@ -60,7 +65,9 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
             String id,
             Stage stage
     ) {
-        return stage(id, stage, StageOptions.defaults());
+        stage(id, stage, StageOptions.defaults());
+        inheritOptions.add(id);
+        return this;
     }
 
     @Override
@@ -125,6 +132,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         for (StageNode stage : parallelStages) {
             stageIds.add(stage.id());
         }
+        inheritOptions.addAll(parallelBuilder.inheritOptions());
 
         layers.add(layer);
 
@@ -140,10 +148,31 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         }
         built = true;
 
-        PipelineDefinition definition =
-                new PipelineDefinition(name, layers, listeners, Optional.ofNullable(timeout));
+        PipelineDefinition definition = new PipelineDefinition(
+                name != null ? name : config.defaultPipelineName(),
+                withDefaultOptions(layers),
+                listeners,
+                config);
 
         return new dev.baton.core.DefaultPipeline(definition);
+    }
+
+    /** Gives stages added without options the config's default stage options. */
+    private List<LayerDefinition> withDefaultOptions(List<LayerDefinition> layers) {
+        StageOptions defaults = config.defaultStageOptions();
+        if (inheritOptions.isEmpty() || defaults == StageOptions.defaults()) {
+            return layers;
+        }
+        List<LayerDefinition> resolved = new ArrayList<>(layers.size());
+        for (LayerDefinition layer : layers) {
+            List<StageNode> stages = layer.stages().stream()
+                    .map(node -> inheritOptions.contains(node.id())
+                            ? new StageNode(node.id(), node.stage(), defaults, node.requiredReads())
+                            : node)
+                    .toList();
+            resolved.add(new LayerDefinition(layer.id(), layer.type(), stages));
+        }
+        return resolved;
     }
 
     private void validateParallelStageIds(List<StageNode> stages) {

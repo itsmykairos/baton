@@ -4,7 +4,6 @@ import dev.baton.api.ContextPatch;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
-
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -18,8 +17,8 @@ public record DefaultStageResult(
         ContextPatch patch,
         WorkerTermination workerTermination,
         List<StageResult> children,
-        int attempts
-) implements StageResult {
+        int attempts)
+        implements StageResult {
 
     public DefaultStageResult {
         Objects.requireNonNull(stageId, "stageId");
@@ -40,9 +39,15 @@ public record DefaultStageResult(
             Throwable error,
             ContextPatch patch,
             WorkerTermination workerTermination,
-            List<StageResult> children
-    ) {
-        this(stageId, status, duration, error, patch, workerTermination, children,
+            List<StageResult> children) {
+        this(
+                stageId,
+                status,
+                duration,
+                error,
+                patch,
+                workerTermination,
+                children,
                 workerTermination == WorkerTermination.NOT_STARTED ? 0 : 1);
     }
 

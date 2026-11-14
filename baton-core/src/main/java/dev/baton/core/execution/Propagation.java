@@ -5,7 +5,6 @@ import dev.baton.api.propagation.BatonContext;
 import dev.baton.api.propagation.ContextPropagator;
 import dev.baton.api.propagation.ExecutionScope;
 import dev.baton.api.propagation.Restoration;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +27,7 @@ final class Propagation {
     private final String pipelineName;
     /** True when only {@link BatonContext} is installed: the common, allocation-light path. */
     private final boolean batonContextOnly;
+
     private final Snapshot batonContextSnapshot = new Snapshot(new Object[1]);
 
     @SuppressWarnings("unchecked")

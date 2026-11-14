@@ -13,5 +13,4 @@ import java.util.UUID;
  * @param timestamp when the stage started
  */
 public record StageStarted(UUID runId, String pipelineName, StagePath path, Instant timestamp)
-        implements PipelineEvent {
-}
+        implements PipelineEvent {}

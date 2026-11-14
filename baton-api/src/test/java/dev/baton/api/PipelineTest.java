@@ -1,9 +1,9 @@
 package dev.baton.api;
 
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.Test;
 
 class PipelineTest {
 
@@ -24,8 +24,6 @@ class PipelineTest {
 
         Stage stage = pipeline.asStage();
 
-        assertThat(stage)
-                .isInstanceOf(NestedPipelineStage.class);
+        assertThat(stage).isInstanceOf(NestedPipelineStage.class);
     }
-
 }

@@ -7,8 +7,8 @@ import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
-import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StagePath;
+import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StageStarted;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
@@ -17,7 +17,6 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
-
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -113,27 +112,43 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
     public void onEvent(PipelineEvent event) {
         switch (event) {
             case RunStarted started -> runs.put(started.runId(), new RunSpans(startRun(started)));
-            case StageStarted started -> spans(started).stages.put(started.path(),
-                    startStage(started.path(), started.pipelineName(), spans(started), started.timestamp()));
+            case StageStarted started ->
+                spans(started)
+                        .stages
+                        .put(
+                                started.path(),
+                                startStage(
+                                        started.path(), started.pipelineName(), spans(started), started.timestamp()));
             case StageRetrying retrying -> {
                 Span span = spans(retrying).stages.get(retrying.path());
                 if (span != null) {
-                    span.addEvent(RETRY_EVENT, io.opentelemetry.api.common.Attributes.of(
-                            FAILED_ATTEMPT_KEY, (long) retrying.failedAttempt(),
-                            DELAY_MS_KEY, retrying.delay().toMillis(),
-                            RETRY_EXCEPTION_KEY, retrying.failure().getClass().getName()),
+                    span.addEvent(
+                            RETRY_EVENT,
+                            io.opentelemetry.api.common.Attributes.of(
+                                    FAILED_ATTEMPT_KEY, (long) retrying.failedAttempt(),
+                                    DELAY_MS_KEY, retrying.delay().toMillis(),
+                                    RETRY_EXCEPTION_KEY,
+                                            retrying.failure().getClass().getName()),
                             retrying.timestamp());
                 }
             }
-            case ContextConflict conflict -> spans(conflict).run.addEvent(CONFLICT_EVENT,
-                    io.opentelemetry.api.common.Attributes.of(
-                            AttributeKey.stringKey("baton.conflict.key"), conflict.conflict().key(),
-                            AttributeKey.stringKey("baton.conflict.kind"), conflict.conflict().kind().name(),
-                            AttributeKey.stringKey("baton.conflict.resolution"),
-                            conflict.conflict().resolution().name(),
-                            AttributeKey.stringArrayKey("baton.conflict.stages"),
-                            conflict.conflict().stages().stream().map(Object::toString).toList()),
-                    conflict.timestamp());
+            case ContextConflict conflict ->
+                spans(conflict)
+                        .run
+                        .addEvent(
+                                CONFLICT_EVENT,
+                                io.opentelemetry.api.common.Attributes.of(
+                                        AttributeKey.stringKey("baton.conflict.key"),
+                                        conflict.conflict().key(),
+                                        AttributeKey.stringKey("baton.conflict.kind"),
+                                        conflict.conflict().kind().name(),
+                                        AttributeKey.stringKey("baton.conflict.resolution"),
+                                        conflict.conflict().resolution().name(),
+                                        AttributeKey.stringArrayKey("baton.conflict.stages"),
+                                        conflict.conflict().stages().stream()
+                                                .map(Object::toString)
+                                                .toList()),
+                                conflict.timestamp());
             case StageFinished finished -> finishStage(finished);
             case RunFinished finished -> finishRun(finished);
         }
@@ -151,14 +166,16 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
 
     /** Spans of a run; created on demand if its RunStarted event was dropped. */
     private RunSpans spans(PipelineEvent event) {
-        return runs.computeIfAbsent(event.runId(), id -> new RunSpans(
-                startRun(new RunStarted(id, event.pipelineName(), event.timestamp()))));
+        return runs.computeIfAbsent(
+                event.runId(),
+                id -> new RunSpans(startRun(new RunStarted(id, event.pipelineName(), event.timestamp()))));
     }
 
     private Span startStage(StagePath path, String pipelineName, RunSpans run, Instant start) {
         Span parentSpan = run.run;
         if (path.depth() > 0) {
-            StagePath parentPath = new StagePath(path.segments().subList(0, path.segments().size() - 1));
+            StagePath parentPath =
+                    new StagePath(path.segments().subList(0, path.segments().size() - 1));
             parentSpan = run.stages.getOrDefault(parentPath, run.run);
         }
         return tracer.spanBuilder(path.stageId())
@@ -175,7 +192,10 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
         Span span = run.stages.remove(finished.path());
         if (span == null) {
             // Never started (BLOCKED or cancelled before start), or its start was dropped.
-            span = startStage(finished.path(), finished.pipelineName(), run,
+            span = startStage(
+                    finished.path(),
+                    finished.pipelineName(),
+                    run,
                     finished.timestamp().minus(finished.duration()));
         }
         span.setAttribute(STAGE_STATUS_KEY, finished.status().name());
@@ -191,7 +211,9 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
     private void finishRun(RunFinished finished) {
         RunSpans run = runs.remove(finished.runId());
         if (run == null) {
-            run = new RunSpans(startRun(new RunStarted(finished.runId(), finished.pipelineName(),
+            run = new RunSpans(startRun(new RunStarted(
+                    finished.runId(),
+                    finished.pipelineName(),
                     finished.timestamp().minus(finished.duration()))));
         }
         // Stages whose finish event was dropped.

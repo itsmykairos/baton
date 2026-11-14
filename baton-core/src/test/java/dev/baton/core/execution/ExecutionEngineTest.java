@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
@@ -12,15 +14,12 @@ import dev.baton.api.StageOptions;
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class ExecutionEngineTest {
 
@@ -30,21 +29,27 @@ class ExecutionEngineTest {
         ContextKey<String> next = ContextKey.of("next", String.class);
 
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("slow", context -> {
-                    ignoreInterruptsFor(300);
-                    return ContextPatch.builder().put(late, "late-value").build();
-                }, StageOptions.defaults()
-                        .withTimeout(Duration.ofMillis(40))
-                        .withFailurePolicy(FailurePolicy.CONTINUE))
-                .stage("next", context -> ContextPatch.builder().put(next, "ran").build())
+                .stage(
+                        "slow",
+                        context -> {
+                            ignoreInterruptsFor(300);
+                            return ContextPatch.builder()
+                                    .put(late, "late-value")
+                                    .build();
+                        },
+                        StageOptions.defaults()
+                                .withTimeout(Duration.ofMillis(40))
+                                .withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage(
+                        "next",
+                        context -> ContextPatch.builder().put(next, "ran").build())
                 .build();
 
         PipelineResult result = pipeline.start(ContextView.empty()).await();
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
         assertThat(result.stages().getFirst().status()).isEqualTo(StageStatus.TIMED_OUT);
-        assertThat(result.stages().getFirst().workerTermination())
-                .isEqualTo(WorkerTermination.UNCONFIRMED);
+        assertThat(result.stages().getFirst().workerTermination()).isEqualTo(WorkerTermination.UNCONFIRMED);
         assertThat(result.context().contains(late)).isFalse();
         assertThat(result.context().get(next)).isEqualTo("ran");
         assertThat(result.isSuccessful()).isFalse();
@@ -57,28 +62,34 @@ class ExecutionEngineTest {
 
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .parallel("parallel", parallel -> {
-                    parallel.stage("first", context -> {
-                        bothStarted.countDown();
-                        try {
-                            ignoreInterruptsFor(2_000);
-                            return ContextPatch.empty();
-                        } finally {
-                            bothExited.countDown();
-                        }
-                    }, StageOptions.defaults()
-                            .withTimeout(Duration.ofMillis(90))
-                            .withFailurePolicy(FailurePolicy.CONTINUE));
-                    parallel.stage("second", context -> {
-                        bothStarted.countDown();
-                        try {
-                            ignoreInterruptsFor(2_000);
-                            return ContextPatch.empty();
-                        } finally {
-                            bothExited.countDown();
-                        }
-                    }, StageOptions.defaults()
-                            .withTimeout(Duration.ofMillis(40))
-                            .withFailurePolicy(FailurePolicy.CONTINUE));
+                    parallel.stage(
+                            "first",
+                            context -> {
+                                bothStarted.countDown();
+                                try {
+                                    ignoreInterruptsFor(2_000);
+                                    return ContextPatch.empty();
+                                } finally {
+                                    bothExited.countDown();
+                                }
+                            },
+                            StageOptions.defaults()
+                                    .withTimeout(Duration.ofMillis(90))
+                                    .withFailurePolicy(FailurePolicy.CONTINUE));
+                    parallel.stage(
+                            "second",
+                            context -> {
+                                bothStarted.countDown();
+                                try {
+                                    ignoreInterruptsFor(2_000);
+                                    return ContextPatch.empty();
+                                } finally {
+                                    bothExited.countDown();
+                                }
+                            },
+                            StageOptions.defaults()
+                                    .withTimeout(Duration.ofMillis(40))
+                                    .withFailurePolicy(FailurePolicy.CONTINUE));
                 })
                 .build();
 
@@ -87,14 +98,12 @@ class ExecutionEngineTest {
         PipelineResult result = run.await();
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.TIMED_OUT, StageStatus.TIMED_OUT);
-        assertThat(result.stages()).allSatisfy(stage ->
-                assertThat(stage.workerTermination()).isEqualTo(WorkerTermination.UNCONFIRMED));
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.TIMED_OUT, StageStatus.TIMED_OUT);
+        assertThat(result.stages())
+                .allSatisfy(stage -> assertThat(stage.workerTermination()).isEqualTo(WorkerTermination.UNCONFIRMED));
         assertThat(bothExited.getCount()).isGreaterThan(0L);
         assertThat(bothExited.await(3, TimeUnit.SECONDS)).isTrue();
     }
-
 
     @Test
     void returningFromStageCancelsUnfinishedChildTasks() throws Exception {
@@ -131,23 +140,26 @@ class ExecutionEngineTest {
         CountDownLatch childInterrupted = new CountDownLatch(1);
 
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("parent", context -> {
-                    context.tasks().fork(() -> {
-                        childStarted.countDown();
-                        try {
-                            new CountDownLatch(1).await();
-                        } catch (InterruptedException e) {
-                            childInterrupted.countDown();
-                            throw e;
-                        }
-                        return null;
-                    });
-                    if (!childStarted.await(1, TimeUnit.SECONDS)) {
-                        throw new AssertionError("child did not start");
-                    }
-                    ignoreInterruptsFor(300);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withTimeout(Duration.ofMillis(40)))
+                .stage(
+                        "parent",
+                        context -> {
+                            context.tasks().fork(() -> {
+                                childStarted.countDown();
+                                try {
+                                    new CountDownLatch(1).await();
+                                } catch (InterruptedException e) {
+                                    childInterrupted.countDown();
+                                    throw e;
+                                }
+                                return null;
+                            });
+                            if (!childStarted.await(1, TimeUnit.SECONDS)) {
+                                throw new AssertionError("child did not start");
+                            }
+                            ignoreInterruptsFor(300);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withTimeout(Duration.ofMillis(40)))
                 .build();
 
         PipelineResult result = pipeline.start(ContextView.empty()).await();
@@ -155,8 +167,6 @@ class ExecutionEngineTest {
         assertThat(result.status()).isEqualTo(PipelineStatus.TIMED_OUT);
         assertThat(childInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
     }
-
-
 
     @Test
     void sequentialStageRunsOnAVirtualThread() throws Exception {
@@ -169,8 +179,7 @@ class ExecutionEngineTest {
 
         PipelineResult result = pipeline.run(ContextView.empty());
         assertThat(result.isSuccessful()).isTrue();
-        assertThat(result.stages().getFirst().workerTermination())
-                .isEqualTo(WorkerTermination.TERMINATED);
+        assertThat(result.stages().getFirst().workerTermination()).isEqualTo(WorkerTermination.TERMINATED);
     }
 
     @Test
@@ -211,8 +220,7 @@ class ExecutionEngineTest {
         assertThat(cancelMillis).isLessThan(250L);
         PipelineResult result = run.await();
         assertThat(result.status()).isEqualTo(PipelineStatus.CANCELLED);
-        assertThat(result.stages().getFirst().workerTermination())
-                .isEqualTo(WorkerTermination.UNCONFIRMED);
+        assertThat(result.stages().getFirst().workerTermination()).isEqualTo(WorkerTermination.UNCONFIRMED);
     }
 
     @Test
@@ -247,7 +255,6 @@ class ExecutionEngineTest {
         assertThat(run.await().status()).isEqualTo(PipelineStatus.COMPLETED);
     }
 
-
     @Test
     void parallelResultsAndPatchMergeRemainInDefinitionOrder() throws Exception {
         ContextKey<String> first = ContextKey.of("first", String.class);
@@ -273,8 +280,7 @@ class ExecutionEngineTest {
         PipelineResult result = pipeline.start(ContextView.empty()).await();
 
         assertThat(result.isSuccessful()).isTrue();
-        assertThat(result.stages()).extracting("stageId")
-                .containsExactly("first", "second");
+        assertThat(result.stages()).extracting("stageId").containsExactly("first", "second");
         assertThat(result.context().get(first)).isEqualTo("one");
         assertThat(result.context().get(second)).isEqualTo("two");
     }
@@ -285,12 +291,18 @@ class ExecutionEngineTest {
         ContextKey<String> prior = ContextKey.of("prior", String.class);
 
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("prior", context -> ContextPatch.builder().put(prior, "kept").build())
+                .stage(
+                        "prior",
+                        context -> ContextPatch.builder().put(prior, "kept").build())
                 .parallel("conflict", parallel -> {
-                    parallel.stage("left", context ->
-                            ContextPatch.builder().put(shared, "same").build());
-                    parallel.stage("right", context ->
-                            ContextPatch.builder().put(shared, "same").build());
+                    parallel.stage(
+                            "left",
+                            context ->
+                                    ContextPatch.builder().put(shared, "same").build());
+                    parallel.stage(
+                            "right",
+                            context ->
+                                    ContextPatch.builder().put(shared, "same").build());
                 })
                 .build();
 
@@ -299,7 +311,8 @@ class ExecutionEngineTest {
         assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
         assertThat(result.context().get(prior)).isEqualTo("kept");
         assertThat(result.context().contains(shared)).isFalse();
-        assertThat(result.stages()).extracting("status")
+        assertThat(result.stages())
+                .extracting("status")
                 .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED, StageStatus.FAILED);
         assertThat(result.stages().get(1).failure().orElseThrow())
                 .isInstanceOf(ContextMergeException.class)
@@ -315,9 +328,15 @@ class ExecutionEngineTest {
 
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .parallel("layer", parallel -> {
-                    parallel.stage("left", context -> ContextPatch.builder().put(shared, "l").build());
-                    parallel.stage("right", context -> ContextPatch.builder().put(shared, "r").build());
-                    parallel.stage("independent", context -> ContextPatch.builder().put(own, "kept").build());
+                    parallel.stage(
+                            "left",
+                            context -> ContextPatch.builder().put(shared, "l").build());
+                    parallel.stage(
+                            "right",
+                            context -> ContextPatch.builder().put(shared, "r").build());
+                    parallel.stage(
+                            "independent",
+                            context -> ContextPatch.builder().put(own, "kept").build());
                 })
                 .stage("after", context -> ContextPatch.empty())
                 .build();
@@ -325,7 +344,8 @@ class ExecutionEngineTest {
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
-        assertThat(result.stages()).extracting("status")
+        assertThat(result.stages())
+                .extracting("status")
                 .containsExactly(StageStatus.FAILED, StageStatus.FAILED, StageStatus.SUCCEEDED);
         assertThat(result.context().get(own)).isEqualTo("kept");
         assertThat(result.context().contains(shared)).isFalse();
@@ -336,8 +356,12 @@ class ExecutionEngineTest {
         ContextKey<String> value = ContextKey.of("value", String.class);
 
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("first", context -> ContextPatch.builder().put(value, "first").build())
-                .stage("second", context -> ContextPatch.builder().put(value, "second").build())
+                .stage(
+                        "first",
+                        context -> ContextPatch.builder().put(value, "first").build())
+                .stage(
+                        "second",
+                        context -> ContextPatch.builder().put(value, "second").build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -355,16 +379,19 @@ class ExecutionEngineTest {
 
             Pipeline pipeline = new DefaultPipelineBuilder()
                     .parallel("layer", parallel -> {
-                        parallel.stage("slow", context -> {
-                            slowStarted.countDown();
-                            try {
-                                Thread.sleep(5_000);
-                            } catch (InterruptedException e) {
-                                slowInterrupted.countDown();
-                                throw e;
-                            }
-                            return ContextPatch.empty();
-                        }, StageOptions.defaults().withFailurePolicy(siblingPolicy));
+                        parallel.stage(
+                                "slow",
+                                context -> {
+                                    slowStarted.countDown();
+                                    try {
+                                        Thread.sleep(5_000);
+                                    } catch (InterruptedException e) {
+                                        slowInterrupted.countDown();
+                                        throw e;
+                                    }
+                                    return ContextPatch.empty();
+                                },
+                                StageOptions.defaults().withFailurePolicy(siblingPolicy));
                         parallel.stage("fails", context -> {
                             if (!slowStarted.await(1, TimeUnit.SECONDS)) {
                                 throw new AssertionError("slow stage did not start");
@@ -382,8 +409,7 @@ class ExecutionEngineTest {
             assertThat(millis).as("sibling policy %s", siblingPolicy).isLessThan(1_000L);
             assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
             assertThat(result.stages()).extracting("stageId").containsExactly("slow", "fails");
-            assertThat(result.stages()).extracting("status")
-                    .containsExactly(StageStatus.CANCELLED, StageStatus.FAILED);
+            assertThat(result.stages()).extracting("status").containsExactly(StageStatus.CANCELLED, StageStatus.FAILED);
             assertThat(result.failure()).containsSame(boom);
             assertThat(slowInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
         }
@@ -397,17 +423,19 @@ class ExecutionEngineTest {
                         Thread.sleep(150);
                         return ContextPatch.empty();
                     });
-                    parallel.stage("fails", context -> {
-                        throw new IllegalStateException("boom");
-                    }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE));
+                    parallel.stage(
+                            "fails",
+                            context -> {
+                                throw new IllegalStateException("boom");
+                            },
+                            StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE));
                 })
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
     }
 
     @Test
@@ -458,10 +486,13 @@ class ExecutionEngineTest {
     @Test
     void syncRunReturnsPromptlyAfterTimeoutWhenWorkerIgnoresInterrupts() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("uncooperative", context -> {
-                    ignoreInterruptsFor(2_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
+                .stage(
+                        "uncooperative",
+                        context -> {
+                            ignoreInterruptsFor(2_000);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
                 .build();
 
         long start = System.nanoTime();

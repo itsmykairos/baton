@@ -13,7 +13,6 @@ import dev.baton.core.definition.LayerDefinition;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.definition.StageNode;
 import dev.baton.core.execution.PipelineExecutionSession;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,10 +22,7 @@ public final class DefaultPipeline implements Pipeline {
     private final PipelineDefinition definition;
 
     public DefaultPipeline(PipelineDefinition definition) {
-        this.definition = Objects.requireNonNull(
-                definition,
-                "definition"
-        );
+        this.definition = Objects.requireNonNull(definition, "definition");
     }
 
     /** The immutable definition; used by the engine to run this pipeline nested in another. */
@@ -40,7 +36,8 @@ public final class DefaultPipeline implements Pipeline {
                 .map(layer -> new LayerDescription(
                         layer.id(),
                         layer.type() == LayerDefinition.Type.PARALLEL
-                                ? LayerDescription.Kind.PARALLEL : LayerDescription.Kind.SEQUENTIAL,
+                                ? LayerDescription.Kind.PARALLEL
+                                : LayerDescription.Kind.SEQUENTIAL,
                         layer.stages().stream().map(DefaultPipeline::describe).toList()))
                 .toList();
         return new PipelineDescription(definition.name(), layers, definition.config());
@@ -55,8 +52,7 @@ public final class DefaultPipeline implements Pipeline {
                 // A pipeline implementation that cannot describe itself.
             }
         }
-        return new StageDescription(node.id(), stageType(node.stage()), node.options(),
-                node.requiredReads(), nested);
+        return new StageDescription(node.id(), stageType(node.stage()), node.options(), node.requiredReads(), nested);
     }
 
     private static String stageType(Object stage) {
@@ -65,24 +61,17 @@ public final class DefaultPipeline implements Pipeline {
     }
 
     @Override
-    public PipelineResult run(ContextView input, RunOptions options)
-            throws InterruptedException {
+    public PipelineResult run(ContextView input, RunOptions options) throws InterruptedException {
 
         return new PipelineExecutionSession(
-                definition,
-                Objects.requireNonNull(input, "input"),
-                Objects.requireNonNull(options, "options")
-        ).executeSync();
+                        definition, Objects.requireNonNull(input, "input"), Objects.requireNonNull(options, "options"))
+                .executeSync();
     }
 
     @Override
     public PipelineRun start(ContextView input, RunOptions options) {
-        PipelineExecutionSession session =
-                new PipelineExecutionSession(
-                        definition,
-                        Objects.requireNonNull(input, "input"),
-                        Objects.requireNonNull(options, "options")
-                );
+        PipelineExecutionSession session = new PipelineExecutionSession(
+                definition, Objects.requireNonNull(input, "input"), Objects.requireNonNull(options, "options"));
 
         session.startAsync();
         return session;

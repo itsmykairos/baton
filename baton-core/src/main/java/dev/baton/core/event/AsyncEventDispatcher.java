@@ -1,12 +1,10 @@
 package dev.baton.core.event;
 
+import dev.baton.api.EventOverflowPolicy;
+import dev.baton.api.ListenerErrorHandler;
 import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
-
-import dev.baton.api.EventOverflowPolicy;
-import dev.baton.api.ListenerErrorHandler;
-
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +40,7 @@ public final class AsyncEventDispatcher implements EventSink {
     private final AtomicLong dropped = new AtomicLong();
     /** Emits in progress; finishing waits for them so none lands behind RunFinished. */
     private final AtomicInteger inFlight = new AtomicInteger();
+
     private final Thread deliveryThread;
     private volatile LongFunction<RunFinished> lastEvent;
 
@@ -50,8 +49,7 @@ public final class AsyncEventDispatcher implements EventSink {
             int capacity,
             Duration batchInterval,
             EventOverflowPolicy overflow,
-            ListenerErrorHandler errorHandler
-    ) {
+            ListenerErrorHandler errorHandler) {
         this.listeners = List.copyOf(listeners);
         this.capacity = capacity;
         this.batchIntervalNanos = batchInterval.toNanos();
@@ -110,7 +108,7 @@ public final class AsyncEventDispatcher implements EventSink {
     }
 
     private void drain() {
-        for (;;) {
+        for (; ; ) {
             for (PipelineEvent event; (event = queue.poll()) != null; ) {
                 size.decrementAndGet();
                 deliver(event);

@@ -11,7 +11,6 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
-
 import java.util.Objects;
 
 /**
@@ -47,8 +46,7 @@ public final class OpenTelemetryContextPropagator implements ContextPropagator<C
 
     private static final AttributeKey<String> PIPELINE_NAME =
             AttributeKey.stringKey(OpenTelemetryPipelineListener.PIPELINE_NAME);
-    private static final AttributeKey<String> RUN_ID =
-            AttributeKey.stringKey(OpenTelemetryPipelineListener.RUN_ID);
+    private static final AttributeKey<String> RUN_ID = AttributeKey.stringKey(OpenTelemetryPipelineListener.RUN_ID);
     private static final AttributeKey<String> STAGE_PATH =
             AttributeKey.stringKey(OpenTelemetryPipelineListener.STAGE_PATH);
 
@@ -73,19 +71,21 @@ public final class OpenTelemetryContextPropagator implements ContextPropagator<C
     public Restoration restore(Context captured, ExecutionScope scope) {
         Context parent = captured == null ? Context.root() : captured;
         Span span = switch (scope.kind()) {
-            case RUN -> tracer.spanBuilder(scope.pipelineName())
-                    .setParent(parent)
-                    .setSpanKind(SpanKind.INTERNAL)
-                    .setAttribute(PIPELINE_NAME, scope.pipelineName())
-                    .setAttribute(RUN_ID, scope.runId().toString())
-                    .startSpan();
-            case STAGE -> tracer.spanBuilder(scope.stage().orElseThrow().stageId())
-                    .setParent(parent)
-                    .setSpanKind(SpanKind.INTERNAL)
-                    .setAttribute(PIPELINE_NAME, scope.pipelineName())
-                    .setAttribute(RUN_ID, scope.runId().toString())
-                    .setAttribute(STAGE_PATH, scope.stage().orElseThrow().toString())
-                    .startSpan();
+            case RUN ->
+                tracer.spanBuilder(scope.pipelineName())
+                        .setParent(parent)
+                        .setSpanKind(SpanKind.INTERNAL)
+                        .setAttribute(PIPELINE_NAME, scope.pipelineName())
+                        .setAttribute(RUN_ID, scope.runId().toString())
+                        .startSpan();
+            case STAGE ->
+                tracer.spanBuilder(scope.stage().orElseThrow().stageId())
+                        .setParent(parent)
+                        .setSpanKind(SpanKind.INTERNAL)
+                        .setAttribute(PIPELINE_NAME, scope.pipelineName())
+                        .setAttribute(RUN_ID, scope.runId().toString())
+                        .setAttribute(STAGE_PATH, scope.stage().orElseThrow().toString())
+                        .startSpan();
             default -> null;
         };
         Scope current = (span == null ? parent : parent.with(span)).makeCurrent();

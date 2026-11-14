@@ -14,8 +14,7 @@ import org.springframework.context.annotation.Bean;
 public class BatonEndpointAutoConfiguration {
 
     /** Creates the auto-configuration. */
-    public BatonEndpointAutoConfiguration() {
-    }
+    public BatonEndpointAutoConfiguration() {}
 
     /**
      * The {@code baton} endpoint.

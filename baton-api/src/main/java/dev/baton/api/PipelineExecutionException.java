@@ -7,8 +7,7 @@ import java.util.Objects;
  * {@link PipelineStatus#FAILED} or {@link PipelineStatus#TIMED_OUT}.
  * The cause is the child run's own failure.
  */
-public final class PipelineExecutionException
-        extends Exception {
+public final class PipelineExecutionException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
@@ -24,8 +23,7 @@ public final class PipelineExecutionException
         super(
                 "Nested pipeline did not complete successfully: "
                         + Objects.requireNonNull(result, "result").status(),
-                result.failure().orElse(null)
-        );
+                result.failure().orElse(null));
 
         this.result = result;
     }

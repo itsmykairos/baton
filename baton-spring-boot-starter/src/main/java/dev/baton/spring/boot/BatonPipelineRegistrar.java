@@ -6,6 +6,12 @@ import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
 import dev.baton.spring.boot.BatonProperties.PipelineSpec;
 import dev.baton.spring.boot.BatonProperties.StageSpec;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -16,13 +22,6 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.Environment;
-
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Registers a {@link Pipeline} bean for each pipeline declared under
@@ -56,8 +55,7 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
     private Environment environment;
 
     /** Creates the registrar; Spring calls it while bean definitions are loaded. */
-    public BatonPipelineRegistrar() {
-    }
+    public BatonPipelineRegistrar() {}
 
     @Override
     public void setEnvironment(Environment environment) {
@@ -79,8 +77,7 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
     }
 
     @Override
-    public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {
-    }
+    public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {}
 
     // ---- validation --------------------------------------------------------------
 
@@ -143,8 +140,8 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
         if (trail.contains(key)) {
             List<String> cycle = new ArrayList<>(trail.subList(trail.indexOf(key), trail.size()));
             cycle.add(key);
-            throw new IllegalStateException("baton.pipelines nest each other in a cycle: "
-                    + String.join(" -> ", cycle));
+            throw new IllegalStateException(
+                    "baton.pipelines nest each other in a cycle: " + String.join(" -> ", cycle));
         }
         Set<String> nested = nests.get(key);
         if (nested == null) {
@@ -172,7 +169,12 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
             if (layer.parallel() != null) {
                 builder.parallel(layer.parallel(), parallel -> {
                     for (int j = 0; j < layer.stages().size(); j++) {
-                        add(parallel::stage, parallel::stage, layer.stages().get(j), beans, config,
+                        add(
+                                parallel::stage,
+                                parallel::stage,
+                                layer.stages().get(j),
+                                beans,
+                                config,
                                 path + ".stages[" + j + "]");
                     }
                 });
@@ -189,15 +191,15 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
             StageSpec spec,
             BeanFactory beans,
             BatonConfig config,
-            String path
-    ) {
+            String path) {
         Stage stage;
         String id;
         if (spec.stage() != null) {
             stage = StageSpecs.bean(beans, spec.stage(), Stage.class, path + ".stage");
             id = spec.id() != null ? spec.id() : spec.stage();
         } else {
-            stage = StageSpecs.bean(beans, spec.pipeline(), Pipeline.class, path + ".pipeline").asStage();
+            stage = StageSpecs.bean(beans, spec.pipeline(), Pipeline.class, path + ".pipeline")
+                    .asStage();
             id = spec.id() != null ? spec.id() : spec.pipeline();
         }
         if (StageSpecs.hasOptions(spec)) {

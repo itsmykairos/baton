@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -14,9 +16,6 @@ import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
 import dev.baton.api.event.StageStarted;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class PipelineEventsTest {
 
@@ -48,15 +46,17 @@ class PipelineEventsTest {
         List<PipelineEvent> events = recorder.awaitFinished();
 
         assertThat(result.isSuccessful()).isTrue();
-        assertThat(events).extracting(PipelineEventsTest::describe).containsExactly(
-                "RunStarted",
-                "StageStarted load",
-                "StageFinished load SUCCEEDED",
-                "StageStarted payment",
-                "StageStarted payment/charge",
-                "StageFinished payment/charge SUCCEEDED",
-                "StageFinished payment SUCCEEDED",
-                "RunFinished COMPLETED");
+        assertThat(events)
+                .extracting(PipelineEventsTest::describe)
+                .containsExactly(
+                        "RunStarted",
+                        "StageStarted load",
+                        "StageFinished load SUCCEEDED",
+                        "StageStarted payment",
+                        "StageStarted payment/charge",
+                        "StageFinished payment/charge SUCCEEDED",
+                        "StageFinished payment SUCCEEDED",
+                        "RunFinished COMPLETED");
         assertThat(events).allSatisfy(event -> {
             assertThat(event.pipelineName()).isEqualTo("checkout");
             assertThat(event.runId()).isEqualTo(events.getFirst().runId());
@@ -79,7 +79,8 @@ class PipelineEventsTest {
 
         assertThat(runLevel.events).hasSize(4);
         assertThat(pipelineLevel.events).hasSize(8);
-        assertThat(pipelineLevel.events.stream().map(PipelineEvent::runId).distinct()).hasSize(2);
+        assertThat(pipelineLevel.events.stream().map(PipelineEvent::runId).distinct())
+                .hasSize(2);
         assertThat(pipelineLevel.events.getFirst().pipelineName()).isEqualTo("pipeline");
     }
 
@@ -89,8 +90,12 @@ class PipelineEventsTest {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .listener(recorder)
                 .parallel("layer", parallel -> {
-                    parallel.stage("left", context -> ContextPatch.builder().put(VALUE, "l").build());
-                    parallel.stage("right", context -> ContextPatch.builder().put(VALUE, "r").build());
+                    parallel.stage(
+                            "left",
+                            context -> ContextPatch.builder().put(VALUE, "l").build());
+                    parallel.stage(
+                            "right",
+                            context -> ContextPatch.builder().put(VALUE, "r").build());
                 })
                 .build();
 
@@ -98,7 +103,8 @@ class PipelineEventsTest {
         List<PipelineEvent> events = recorder.awaitFinished();
 
         Map<String, StageStatus> finished = events.stream()
-                .filter(StageFinished.class::isInstance).map(StageFinished.class::cast)
+                .filter(StageFinished.class::isInstance)
+                .map(StageFinished.class::cast)
                 .collect(Collectors.toMap(event -> event.path().toString(), StageFinished::status));
         assertThat(finished).containsEntry("left", StageStatus.FAILED).containsEntry("right", StageStatus.FAILED);
         RunFinished last = (RunFinished) events.getLast();
@@ -146,9 +152,9 @@ class PipelineEventsTest {
         }
         Pipeline pipeline = builder.build();
 
-        pipeline.run(ContextView.empty(), RunOptions.defaults()
-                .withEventBufferCapacity(4)
-                .withListener(event -> {
+        pipeline.run(
+                ContextView.empty(),
+                RunOptions.defaults().withEventBufferCapacity(4).withListener(event -> {
                     try {
                         release.await();
                     } catch (InterruptedException e) {
@@ -204,7 +210,8 @@ class PipelineEventsTest {
 
         pipeline.run(ContextView.empty());
 
-        assertThat(recorder.awaitFinished()).extracting(PipelineEventsTest::describe)
+        assertThat(recorder.awaitFinished())
+                .extracting(PipelineEventsTest::describe)
                 .containsExactly("RunStarted", "StageFinished blocked BLOCKED", "RunFinished COMPLETED");
     }
 
@@ -214,11 +221,14 @@ class PipelineEventsTest {
         CountDownLatch started = new CountDownLatch(1);
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .listener(recorder)
-                .stage("waits", context -> {
-                    started.countDown();
-                    new CountDownLatch(1).await();
-                    return ContextPatch.empty();
-                }, dev.baton.api.StageOptions.defaults())
+                .stage(
+                        "waits",
+                        context -> {
+                            started.countDown();
+                            new CountDownLatch(1).await();
+                            return ContextPatch.empty();
+                        },
+                        dev.baton.api.StageOptions.defaults())
                 .build();
 
         var run = pipeline.start(ContextView.empty());
@@ -226,18 +236,20 @@ class PipelineEventsTest {
         run.cancel();
 
         List<PipelineEvent> events = recorder.awaitFinished();
-        assertThat(events).extracting(PipelineEventsTest::describe)
-                .containsExactly("RunStarted", "StageStarted waits", "StageFinished waits CANCELLED",
-                        "RunFinished CANCELLED");
+        assertThat(events)
+                .extracting(PipelineEventsTest::describe)
+                .containsExactly(
+                        "RunStarted", "StageStarted waits", "StageFinished waits CANCELLED", "RunFinished CANCELLED");
     }
 
     private static String describe(PipelineEvent event) {
         return switch (event) {
             case RunStarted ignored -> "RunStarted";
             case StageStarted started -> "StageStarted " + started.path();
-            case dev.baton.api.event.ContextConflict conflict -> "ContextConflict " + conflict.conflict().key();
+            case dev.baton.api.event.ContextConflict conflict ->
+                "ContextConflict " + conflict.conflict().key();
             case dev.baton.api.event.StageRetrying retrying ->
-                    "StageRetrying " + retrying.path() + " #" + retrying.failedAttempt();
+                "StageRetrying " + retrying.path() + " #" + retrying.failedAttempt();
             case StageFinished finished -> "StageFinished " + finished.path() + " " + finished.status();
             case RunFinished finished -> "RunFinished " + finished.status();
         };
@@ -278,7 +290,8 @@ class PipelineEventsTest {
                     && System.nanoTime() < deadline) {
                 Thread.sleep(5);
             }
-            assertThat(events.stream().filter(RunFinished.class::isInstance).count()).isEqualTo(runs);
+            assertThat(events.stream().filter(RunFinished.class::isInstance).count())
+                    .isEqualTo(runs);
             return new ArrayList<>(events);
         }
     }

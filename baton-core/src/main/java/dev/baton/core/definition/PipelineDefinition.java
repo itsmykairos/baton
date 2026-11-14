@@ -2,27 +2,20 @@ package dev.baton.core.definition;
 
 import dev.baton.api.BatonConfig;
 import dev.baton.api.event.PipelineListener;
-
 import java.time.Duration;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public record PipelineDefinition(
-        String name,
-        List<LayerDefinition> layers,
-        List<PipelineListener> listeners,
-        BatonConfig config
-) {
+        String name, List<LayerDefinition> layers, List<PipelineListener> listeners, BatonConfig config) {
     public static final String DEFAULT_NAME = BatonConfig.DEFAULT_PIPELINE_NAME;
 
     public PipelineDefinition {
         StageNode.requireId(name, "pipeline name");
-        layers = List.copyOf(
-                Objects.requireNonNull(layers, "layers")
-        );
+        layers = List.copyOf(Objects.requireNonNull(layers, "layers"));
         listeners = List.copyOf(Objects.requireNonNull(listeners, "listeners"));
         Objects.requireNonNull(config, "config");
 
@@ -44,16 +37,12 @@ public record PipelineDefinition(
 
         for (LayerDefinition layer : layers) {
             if (!layerIds.add(layer.id())) {
-                throw new IllegalArgumentException(
-                        "Duplicate layer id: " + layer.id()
-                );
+                throw new IllegalArgumentException("Duplicate layer id: " + layer.id());
             }
 
             for (StageNode stage : layer.stages()) {
                 if (!stageIds.add(stage.id())) {
-                    throw new IllegalArgumentException(
-                            "Duplicate stage id: " + stage.id()
-                    );
+                    throw new IllegalArgumentException("Duplicate stage id: " + stage.id());
                 }
             }
         }

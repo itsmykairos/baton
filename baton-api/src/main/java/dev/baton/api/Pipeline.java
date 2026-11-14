@@ -1,8 +1,6 @@
-
 package dev.baton.api;
 
 import dev.baton.api.event.PipelineListener;
-
 import java.util.function.Consumer;
 
 /**
@@ -74,8 +72,7 @@ public interface Pipeline {
      *         itself; the built-in runtime always can
      */
     default dev.baton.api.description.PipelineDescription describe() {
-        throw new UnsupportedOperationException(
-                getClass().getName() + " cannot describe its structure");
+        throw new UnsupportedOperationException(getClass().getName() + " cannot describe its structure");
     }
 
     /**
@@ -167,11 +164,7 @@ public interface Pipeline {
          * @param options timeout and failure policy
          * @return this builder
          */
-        Builder stage(
-                String id,
-                Stage stage,
-                StageOptions options
-        );
+        Builder stage(String id, Stage stage, StageOptions options);
 
         /**
          * Defines a parallel execution layer. Its stages all read the same context
@@ -181,10 +174,7 @@ public interface Pipeline {
          * @param definition adds at least one stage to the layer
          * @return this builder
          */
-        Builder parallel(
-                String id,
-                Consumer<ParallelBuilder> definition
-        );
+        Builder parallel(String id, Consumer<ParallelBuilder> definition);
 
         /**
          * Builds the immutable pipeline definition. The builder cannot be used again.
@@ -218,10 +208,6 @@ public interface Pipeline {
          * @param options timeout and failure policy
          * @return this builder
          */
-        ParallelBuilder stage(
-                String id,
-                Stage stage,
-                StageOptions options
-        );
+        ParallelBuilder stage(String id, Stage stage, StageOptions options);
     }
 }

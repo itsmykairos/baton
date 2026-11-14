@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
@@ -16,8 +18,6 @@ import dev.baton.api.propagation.ContextPropagator;
 import dev.baton.api.propagation.ExecutionScope;
 import dev.baton.api.propagation.Restoration;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -25,8 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class PropagationTest {
 
@@ -53,8 +52,10 @@ class PropagationTest {
             restores.incrementAndGet();
             scopes.add(scope);
             String previous = TRAIL.get();
-            TRAIL.set(scope.kind() == ExecutionScope.Kind.STAGE
-                    ? captured + ">" + scope.stage().orElseThrow().stageId() : captured);
+            TRAIL.set(
+                    scope.kind() == ExecutionScope.Kind.STAGE
+                            ? captured + ">" + scope.stage().orElseThrow().stageId()
+                            : captured);
             return new Restoration() {
                 @Override
                 public void failed(Throwable failure) {
@@ -76,7 +77,8 @@ class PropagationTest {
 
     private static String scope() {
         return BatonContext.current()
-                .map(scope -> scope.kind() + " " + scope.stage().map(Object::toString).orElse("-"))
+                .map(scope ->
+                        scope.kind() + " " + scope.stage().map(Object::toString).orElse("-"))
                 .orElse("none");
     }
 
@@ -86,21 +88,29 @@ class PropagationTest {
         Map<String, String> seen = new ConcurrentHashMap<>();
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .config(BatonConfig.builder().contextPropagator(propagator).build())
-                .stage("work", context -> {
-                    seen.put("stage", trail() + " | " + scope());
-                    String child = context.tasks().fork(() -> trail() + " | " + scope()).join();
-                    seen.put("child", child);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withCondition(context -> {
-                    seen.put("condition", trail() + " | " + scope());
-                    return true;
-                }))
-                .stage("fails", context -> {
-                    throw new IllegalStateException("boom");
-                }, StageOptions.defaults().withFallback((context, failure) -> {
-                    seen.put("fallback", trail() + " | " + scope());
-                    return ContextPatch.empty();
-                }))
+                .stage(
+                        "work",
+                        context -> {
+                            seen.put("stage", trail() + " | " + scope());
+                            String child = context.tasks()
+                                    .fork(() -> trail() + " | " + scope())
+                                    .join();
+                            seen.put("child", child);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withCondition(context -> {
+                            seen.put("condition", trail() + " | " + scope());
+                            return true;
+                        }))
+                .stage(
+                        "fails",
+                        context -> {
+                            throw new IllegalStateException("boom");
+                        },
+                        StageOptions.defaults().withFallback((context, failure) -> {
+                            seen.put("fallback", trail() + " | " + scope());
+                            return ContextPatch.empty();
+                        }))
                 .build();
 
         TrailPropagator.TRAIL.set("caller");
@@ -113,7 +123,8 @@ class PropagationTest {
         }
 
         assertThat(result.isSuccessful()).isTrue();
-        assertThat(seen).containsEntry("stage", "caller>work | STAGE work")
+        assertThat(seen)
+                .containsEntry("stage", "caller>work | STAGE work")
                 .containsEntry("child", "caller>work | CHILD_TASK work")
                 .containsEntry("condition", "caller | CONDITION work")
                 .containsEntry("fallback", "caller | FALLBACK fails");
@@ -153,14 +164,19 @@ class PropagationTest {
         AtomicInteger calls = new AtomicInteger();
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .config(BatonConfig.builder().contextPropagator(propagator).build())
-                .stage("flaky", context -> {
-                    seen.add(trail() + " | " + scope());
-                    if (calls.incrementAndGet() == 1) {
-                        throw new java.io.IOException("down");
-                    }
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withRetry(RetryPolicy.maxAttempts(2)
-                        .withFixedDelay(Duration.ZERO).withAttemptTimeout(Duration.ofSeconds(1))))
+                .stage(
+                        "flaky",
+                        context -> {
+                            seen.add(trail() + " | " + scope());
+                            if (calls.incrementAndGet() == 1) {
+                                throw new java.io.IOException("down");
+                            }
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults()
+                                .withRetry(RetryPolicy.maxAttempts(2)
+                                        .withFixedDelay(Duration.ZERO)
+                                        .withAttemptTimeout(Duration.ofSeconds(1))))
                 .build();
 
         TrailPropagator.TRAIL.set("caller");
@@ -185,14 +201,19 @@ class PropagationTest {
                 .build();
 
         TrailPropagator.TRAIL.set("starter");
-        var run = pipeline.start(ContextView.empty(),
-                RunOptions.defaults().withConfig(BatonConfig.builder().contextPropagator(propagator).build()));
+        var run = pipeline.start(
+                ContextView.empty(),
+                RunOptions.defaults()
+                        .withConfig(BatonConfig.builder()
+                                .contextPropagator(propagator)
+                                .build()));
         TrailPropagator.TRAIL.remove();
         run.await();
 
         assertThat(seen).containsEntry("stage", "starter>work");
-        assertThat(propagator.scopes).first().satisfies(scope ->
-                assertThat(scope.kind()).isEqualTo(ExecutionScope.Kind.RUN));
+        assertThat(propagator.scopes)
+                .first()
+                .satisfies(scope -> assertThat(scope.kind()).isEqualTo(ExecutionScope.Kind.RUN));
     }
 
     @Test
@@ -208,7 +229,8 @@ class PropagationTest {
         pipeline.run(ContextView.empty());
 
         // Once for the stage, once for the run that it failed.
-        assertThat(propagator.failures).hasSize(2)
+        assertThat(propagator.failures)
+                .hasSize(2)
                 .allSatisfy(failure -> assertThat(failure).hasMessage("boom"));
         assertThat(propagator.restores.get()).isEqualTo(propagator.closes.get());
     }
@@ -228,7 +250,9 @@ class PropagationTest {
         };
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .config(BatonConfig.builder().contextPropagator(broken).build())
-                .stage("work", context -> ContextPatch.builder().put(SEEN, scope()).build())
+                .stage(
+                        "work",
+                        context -> ContextPatch.builder().put(SEEN, scope()).build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -256,8 +280,10 @@ class PropagationTest {
                 })
                 .build();
 
-        pipeline.run(ContextView.empty(),
-                RunOptions.defaults().withConfig(BatonConfig.builder().contextPropagator(run).build()));
+        pipeline.run(
+                ContextView.empty(),
+                RunOptions.defaults()
+                        .withConfig(BatonConfig.builder().contextPropagator(run).build()));
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (events.isEmpty() && System.nanoTime() < deadline) {
             Thread.sleep(5);

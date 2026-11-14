@@ -3,9 +3,8 @@ package dev.baton.slf4j;
 import dev.baton.api.propagation.ContextPropagator;
 import dev.baton.api.propagation.ExecutionScope;
 import dev.baton.api.propagation.Restoration;
-import org.slf4j.MDC;
-
 import java.util.Map;
+import org.slf4j.MDC;
 
 /**
  * Carries the SLF4J {@link MDC} into the threads that run stages, child tasks,
@@ -38,8 +37,7 @@ public final class MdcContextPropagator implements ContextPropagator<Map<String,
     public static final String STAGE = "baton.stage";
 
     /** Creates the propagator. It holds no state and can be shared. */
-    public MdcContextPropagator() {
-    }
+    public MdcContextPropagator() {}
 
     @Override
     public Map<String, String> capture() {

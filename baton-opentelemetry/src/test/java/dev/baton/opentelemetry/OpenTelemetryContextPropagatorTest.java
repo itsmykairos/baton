@@ -1,5 +1,7 @@
 package dev.baton.opentelemetry;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -15,13 +17,10 @@ import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import org.junit.jupiter.api.Test;
-
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class OpenTelemetryContextPropagatorTest {
 
@@ -42,14 +41,20 @@ class OpenTelemetryContextPropagatorTest {
                 })
                 .build();
         Pipeline checkout = Pipeline.builder(BatonConfig.builder()
-                        .contextPropagator(new OpenTelemetryContextPropagator(otel)).build())
+                        .contextPropagator(new OpenTelemetryContextPropagator(otel))
+                        .build())
                 .name("checkout")
                 .stage("load", context -> {
                     appTracer.spanBuilder("GET /orders").startSpan().end();
-                    context.tasks().fork(() -> {
-                        appTracer.spanBuilder("SELECT items").startSpan().end();
-                        return null;
-                    }).join();
+                    context.tasks()
+                            .fork(() -> {
+                                appTracer
+                                        .spanBuilder("SELECT items")
+                                        .startSpan()
+                                        .end();
+                                return null;
+                            })
+                            .join();
                     return ContextPatch.empty();
                 })
                 .stage("payment", payment.asStage())
@@ -64,9 +69,18 @@ class OpenTelemetryContextPropagatorTest {
 
         Map<String, SpanData> spans = exporter.getFinishedSpanItems().stream()
                 .collect(Collectors.toMap(SpanData::getName, Function.identity()));
-        assertThat(spans).containsOnlyKeys("request", "checkout", "load", "GET /orders", "SELECT items",
-                "payment", "charge", "POST /charges");
-        assertThat(spans.values()).extracting(SpanData::getTraceId)
+        assertThat(spans)
+                .containsOnlyKeys(
+                        "request",
+                        "checkout",
+                        "load",
+                        "GET /orders",
+                        "SELECT items",
+                        "payment",
+                        "charge",
+                        "POST /charges");
+        assertThat(spans.values())
+                .extracting(SpanData::getTraceId)
                 .containsOnly(request.getSpanContext().getTraceId());
         assertThat(parentOf(spans, "checkout")).isEqualTo("request");
         assertThat(parentOf(spans, "load")).isEqualTo("checkout");
@@ -75,18 +89,25 @@ class OpenTelemetryContextPropagatorTest {
         assertThat(parentOf(spans, "payment")).isEqualTo("checkout");
         assertThat(parentOf(spans, "charge")).isEqualTo("payment");
         assertThat(parentOf(spans, "POST /charges")).isEqualTo("charge");
-        assertThat(spans.get("charge").getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey(
-                OpenTelemetryPipelineListener.STAGE_PATH))).isEqualTo("payment/charge");
+        assertThat(spans.get("charge")
+                        .getAttributes()
+                        .get(io.opentelemetry.api.common.AttributeKey.stringKey(
+                                OpenTelemetryPipelineListener.STAGE_PATH)))
+                .isEqualTo("payment/charge");
     }
 
     @Test
     void failedStagesAndRunsAreErrors() throws Exception {
         Pipeline pipeline = Pipeline.builder(BatonConfig.builder()
-                        .contextPropagator(new OpenTelemetryContextPropagator(otel)).build())
+                        .contextPropagator(new OpenTelemetryContextPropagator(otel))
+                        .build())
                 .name("broken")
-                .stage("tolerated", context -> {
-                    throw new IllegalStateException("down");
-                }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage(
+                        "tolerated",
+                        context -> {
+                            throw new IllegalStateException("down");
+                        },
+                        StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
                 .stage("fails", context -> {
                     throw new IllegalStateException("boom");
                 })
@@ -104,7 +125,10 @@ class OpenTelemetryContextPropagatorTest {
 
     private static String parentOf(Map<String, SpanData> spans, String name) {
         String parentId = spans.get(name).getParentSpanId();
-        return spans.values().stream().filter(span -> span.getSpanId().equals(parentId))
-                .map(SpanData::getName).findFirst().orElse("<none>");
+        return spans.values().stream()
+                .filter(span -> span.getSpanId().equals(parentId))
+                .map(SpanData::getName)
+                .findFirst()
+                .orElse("<none>");
     }
 }

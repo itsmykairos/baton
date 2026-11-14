@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
@@ -23,8 +25,6 @@ import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
 import dev.baton.api.event.StagePath;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -34,8 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class ConfigurationTest {
 
@@ -53,8 +52,15 @@ class ConfigurationTest {
     private static Pipeline twoWriters(BatonConfig config) {
         return builder(config)
                 .parallel("layer", parallel -> {
-                    parallel.stage("left", context -> ContextPatch.builder().put(VALUE, "l").put(OTHER, "o").build());
-                    parallel.stage("right", context -> ContextPatch.builder().put(VALUE, "r").build());
+                    parallel.stage(
+                            "left",
+                            context -> ContextPatch.builder()
+                                    .put(VALUE, "l")
+                                    .put(OTHER, "o")
+                                    .build());
+                    parallel.stage(
+                            "right",
+                            context -> ContextPatch.builder().put(VALUE, "r").build());
                 })
                 .build();
     }
@@ -76,18 +82,21 @@ class ConfigurationTest {
 
     @Test
     void firstWinsKeepsTheFirstWriterAndBothStagesSucceed() throws Exception {
-        PipelineResult result = twoWriters(layerPolicy(LayerConflictPolicy.FIRST_WINS)).run(ContextView.empty());
+        PipelineResult result =
+                twoWriters(layerPolicy(LayerConflictPolicy.FIRST_WINS)).run(ContextView.empty());
 
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.context().get(VALUE)).isEqualTo("l");
         assertThat(result.context().get(OTHER)).isEqualTo("o");
-        assertThat(result.conflicts()).extracting(KeyConflict::resolution)
+        assertThat(result.conflicts())
+                .extracting(KeyConflict::resolution)
                 .containsExactly(KeyConflict.Resolution.FIRST_WINS);
     }
 
     @Test
     void lastWinsKeepsTheLastWriter() throws Exception {
-        PipelineResult result = twoWriters(layerPolicy(LayerConflictPolicy.LAST_WINS)).run(ContextView.empty());
+        PipelineResult result =
+                twoWriters(layerPolicy(LayerConflictPolicy.LAST_WINS)).run(ContextView.empty());
 
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.context().get(VALUE)).isEqualTo("r");
@@ -96,21 +105,28 @@ class ConfigurationTest {
 
     @Test
     void skipKeyWritesTheKeyForNobodyButKeepsOtherWrites() throws Exception {
-        PipelineResult result = twoWriters(layerPolicy(LayerConflictPolicy.SKIP_KEY)).run(ContextView.empty());
+        PipelineResult result =
+                twoWriters(layerPolicy(LayerConflictPolicy.SKIP_KEY)).run(ContextView.empty());
 
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.context().contains(VALUE)).isFalse();
         assertThat(result.context().get(OTHER)).isEqualTo("o");
-        assertThat(result.conflicts()).extracting(KeyConflict::resolution)
+        assertThat(result.conflicts())
+                .extracting(KeyConflict::resolution)
                 .containsExactly(KeyConflict.Resolution.KEY_SKIPPED);
     }
 
     @Test
     void equalValuesNeedNotConflict() throws Exception {
-        Pipeline pipeline = builder(BatonConfig.builder().equalValuesConflict(false).build())
+        Pipeline pipeline = builder(
+                        BatonConfig.builder().equalValuesConflict(false).build())
                 .parallel("layer", parallel -> {
-                    parallel.stage("a", context -> ContextPatch.builder().put(VALUE, "same").build());
-                    parallel.stage("b", context -> ContextPatch.builder().put(VALUE, "same").build());
+                    parallel.stage(
+                            "a",
+                            context -> ContextPatch.builder().put(VALUE, "same").build());
+                    parallel.stage(
+                            "b",
+                            context -> ContextPatch.builder().put(VALUE, "same").build());
                 })
                 .build();
 
@@ -125,11 +141,19 @@ class ConfigurationTest {
 
     @Test
     void keepExistingIgnoresWritesToExistingKeys() throws Exception {
-        Pipeline pipeline = builder(BatonConfig.builder().overwritePolicy(OverwritePolicy.KEEP_EXISTING).build())
-                .stage("rewrite", context -> ContextPatch.builder().put(VALUE, "new").put(OTHER, "added").build())
+        Pipeline pipeline = builder(BatonConfig.builder()
+                        .overwritePolicy(OverwritePolicy.KEEP_EXISTING)
+                        .build())
+                .stage(
+                        "rewrite",
+                        context -> ContextPatch.builder()
+                                .put(VALUE, "new")
+                                .put(OTHER, "added")
+                                .build())
                 .build();
 
-        PipelineResult result = pipeline.run(ContextView.builder().put(VALUE, "input").build());
+        PipelineResult result =
+                pipeline.run(ContextView.builder().put(VALUE, "input").build());
 
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.context().get(VALUE)).isEqualTo("input");
@@ -142,9 +166,15 @@ class ConfigurationTest {
 
     @Test
     void overwriteFailFailsTheStage() throws Exception {
-        Pipeline pipeline = builder(BatonConfig.builder().overwritePolicy(OverwritePolicy.FAIL).build())
-                .stage("first", context -> ContextPatch.builder().put(VALUE, "a").build())
-                .stage("second", context -> ContextPatch.builder().put(VALUE, "b").build())
+        Pipeline pipeline = builder(BatonConfig.builder()
+                        .overwritePolicy(OverwritePolicy.FAIL)
+                        .build())
+                .stage(
+                        "first",
+                        context -> ContextPatch.builder().put(VALUE, "a").build())
+                .stage(
+                        "second",
+                        context -> ContextPatch.builder().put(VALUE, "b").build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -156,9 +186,15 @@ class ConfigurationTest {
 
     @Test
     void stageOverwritePolicyOverridesThePipelines() throws Exception {
-        Pipeline pipeline = builder(BatonConfig.builder().overwritePolicy(OverwritePolicy.FAIL).build())
-                .stage("first", context -> ContextPatch.builder().put(VALUE, "a").build())
-                .stage("allowed", context -> ContextPatch.builder().put(VALUE, "b").build(),
+        Pipeline pipeline = builder(BatonConfig.builder()
+                        .overwritePolicy(OverwritePolicy.FAIL)
+                        .build())
+                .stage(
+                        "first",
+                        context -> ContextPatch.builder().put(VALUE, "a").build())
+                .stage(
+                        "allowed",
+                        context -> ContextPatch.builder().put(VALUE, "b").build(),
                         StageOptions.defaults().withOverwritePolicy(OverwritePolicy.OVERRIDE))
                 .build();
 
@@ -171,9 +207,15 @@ class ConfigurationTest {
     @Test
     void typeClashReplaceSwapsTheKeyType() throws Exception {
         ContextKey<Integer> valueAsInt = ContextKey.of("value", Integer.class);
-        Pipeline pipeline = builder(BatonConfig.builder().typeClashPolicy(TypeClashPolicy.REPLACE).build())
-                .stage("asString", context -> ContextPatch.builder().put(VALUE, "7").build())
-                .stage("asInt", context -> ContextPatch.builder().put(valueAsInt, 7).build())
+        Pipeline pipeline = builder(BatonConfig.builder()
+                        .typeClashPolicy(TypeClashPolicy.REPLACE)
+                        .build())
+                .stage(
+                        "asString",
+                        context -> ContextPatch.builder().put(VALUE, "7").build())
+                .stage(
+                        "asInt",
+                        context -> ContextPatch.builder().put(valueAsInt, 7).build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -182,7 +224,8 @@ class ConfigurationTest {
         assertThat(result.context().get(valueAsInt)).isEqualTo(7);
         assertThat(result.context().contains(VALUE)).isFalse();
         assertThat(result.context().keyNamed("value")).contains(valueAsInt);
-        assertThat(result.conflicts()).extracting(KeyConflict::resolution)
+        assertThat(result.conflicts())
+                .extracting(KeyConflict::resolution)
                 .containsExactly(KeyConflict.Resolution.REPLACED);
     }
 
@@ -190,19 +233,26 @@ class ConfigurationTest {
     void nestedConflictsUseTheChildsPolicyAndReachTheOuterResultWithFullPaths() throws Exception {
         Pipeline child = builder(layerPolicy(LayerConflictPolicy.LAST_WINS))
                 .parallel("layer", parallel -> {
-                    parallel.stage("a", context -> ContextPatch.builder().put(VALUE, "a").build());
-                    parallel.stage("b", context -> ContextPatch.builder().put(VALUE, "b").build());
+                    parallel.stage(
+                            "a",
+                            context -> ContextPatch.builder().put(VALUE, "a").build());
+                    parallel.stage(
+                            "b",
+                            context -> ContextPatch.builder().put(VALUE, "b").build());
                 })
                 .build();
         // The parent's FAIL policy does not apply inside the child.
-        Pipeline parent = builder(BatonConfig.defaults()).stage("nested", child.asStage()).build();
+        Pipeline parent =
+                builder(BatonConfig.defaults()).stage("nested", child.asStage()).build();
 
         PipelineResult result = parent.run(ContextView.empty());
 
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.context().get(VALUE)).isEqualTo("b");
-        assertThat(result.conflicts()).singleElement().satisfies(conflict ->
-                assertThat(conflict.stages()).containsExactly(StagePath.of("nested", "a"), StagePath.of("nested", "b")));
+        assertThat(result.conflicts())
+                .singleElement()
+                .satisfies(conflict -> assertThat(conflict.stages())
+                        .containsExactly(StagePath.of("nested", "a"), StagePath.of("nested", "b")));
     }
 
     @Test
@@ -211,16 +261,23 @@ class ConfigurationTest {
         Pipeline pipeline = builder(layerPolicy(LayerConflictPolicy.FIRST_WINS))
                 .listener(events::add)
                 .parallel("layer", parallel -> {
-                    parallel.stage("a", context -> ContextPatch.builder().put(VALUE, "a").build());
-                    parallel.stage("b", context -> ContextPatch.builder().put(VALUE, "b").build());
+                    parallel.stage(
+                            "a",
+                            context -> ContextPatch.builder().put(VALUE, "a").build());
+                    parallel.stage(
+                            "b",
+                            context -> ContextPatch.builder().put(VALUE, "b").build());
                 })
                 .build();
 
         pipeline.run(ContextView.empty());
         awaitRunFinished(events, 1);
 
-        assertThat(events).filteredOn(ContextConflict.class::isInstance).map(ContextConflict.class::cast)
-                .singleElement().satisfies(event ->
+        assertThat(events)
+                .filteredOn(ContextConflict.class::isInstance)
+                .map(ContextConflict.class::cast)
+                .singleElement()
+                .satisfies(event ->
                         assertThat(event.conflict().resolution()).isEqualTo(KeyConflict.Resolution.FIRST_WINS));
     }
 
@@ -231,16 +288,19 @@ class ConfigurationTest {
         BatonConfig app = layerPolicy(LayerConflictPolicy.FIRST_WINS);
         DefaultPipelineBuilder builder = new DefaultPipelineBuilder();
         builder.config(app).config(layerPolicy(LayerConflictPolicy.LAST_WINS));
-        Pipeline pipeline = builder
-                .parallel("layer", parallel -> {
-                    parallel.stage("a", context -> ContextPatch.builder().put(VALUE, "a").build());
-                    parallel.stage("b", context -> ContextPatch.builder().put(VALUE, "b").build());
+        Pipeline pipeline = builder.parallel("layer", parallel -> {
+                    parallel.stage(
+                            "a",
+                            context -> ContextPatch.builder().put(VALUE, "a").build());
+                    parallel.stage(
+                            "b",
+                            context -> ContextPatch.builder().put(VALUE, "b").build());
                 })
                 .build();
 
         PipelineResult pipelineLevel = pipeline.run(ContextView.empty());
-        PipelineResult runLevel = pipeline.run(ContextView.empty(),
-                RunOptions.defaults().withConfig(layerPolicy(LayerConflictPolicy.SKIP_KEY)));
+        PipelineResult runLevel = pipeline.run(
+                ContextView.empty(), RunOptions.defaults().withConfig(layerPolicy(LayerConflictPolicy.SKIP_KEY)));
 
         assertThat(pipelineLevel.context().get(VALUE)).isEqualTo("b");
         assertThat(runLevel.context().contains(VALUE)).isFalse();
@@ -249,8 +309,8 @@ class ConfigurationTest {
     @Test
     void defaultStageOptionsApplyOnlyToStagesWithoutOptions() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        StageOptions retrying = StageOptions.defaults().withRetry(
-                dev.baton.api.RetryPolicy.maxAttempts(3).withFixedDelay(Duration.ZERO));
+        StageOptions retrying = StageOptions.defaults()
+                .withRetry(dev.baton.api.RetryPolicy.maxAttempts(3).withFixedDelay(Duration.ZERO));
         dev.baton.api.Stage flaky = context -> {
             if (calls.incrementAndGet() % 2 == 1) {
                 throw new java.io.IOException("flaky");
@@ -260,8 +320,10 @@ class ConfigurationTest {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .stage("inherits", flaky)
                 .parallel("layer", parallel -> parallel.stage("alsoInherits", flaky))
-                .stage("explicit", flaky, StageOptions.defaults().withFailurePolicy(
-                        dev.baton.api.FailurePolicy.CONTINUE))
+                .stage(
+                        "explicit",
+                        flaky,
+                        StageOptions.defaults().withFailurePolicy(dev.baton.api.FailurePolicy.CONTINUE))
                 // Set after the stages: resolved at build().
                 .config(BatonConfig.builder().defaultStageOptions(retrying).build())
                 .build();
@@ -339,7 +401,9 @@ class ConfigurationTest {
                     for (var handle : handles) {
                         sum += handle.join();
                     }
-                    return ContextPatch.builder().put(ContextKey.of("sum", Integer.class), sum).build();
+                    return ContextPatch.builder()
+                            .put(ContextKey.of("sum", Integer.class), sum)
+                            .build();
                 })
                 .build();
 
@@ -352,7 +416,8 @@ class ConfigurationTest {
     @Test
     void unjoinedChildFailureCanBeIgnored() throws Exception {
         Pipeline pipeline = builder(BatonConfig.builder()
-                .unjoinedChildFailure(UnjoinedChildFailurePolicy.IGNORE).build())
+                        .unjoinedChildFailure(UnjoinedChildFailurePolicy.IGNORE)
+                        .build())
                 .stage("parent", context -> {
                     var child = context.tasks().fork(() -> {
                         throw new IllegalStateException("child failed");
@@ -372,7 +437,8 @@ class ConfigurationTest {
     void threadFactoryNamesStageThreads() throws Exception {
         List<String> names = new CopyOnWriteArrayList<>();
         Pipeline pipeline = builder(BatonConfig.builder()
-                .threadFactory(Thread.ofVirtual().name("checkout-", 0).factory()).build())
+                        .threadFactory(Thread.ofVirtual().name("checkout-", 0).factory())
+                        .build())
                 .stage("a", context -> {
                     names.add(Thread.currentThread().getName());
                     return ContextPatch.empty();
@@ -390,7 +456,9 @@ class ConfigurationTest {
     void clockStampsEvents() throws Exception {
         Instant fixed = Instant.parse("2030-01-01T00:00:00Z");
         List<PipelineEvent> events = new CopyOnWriteArrayList<>();
-        Pipeline pipeline = builder(BatonConfig.builder().clock(Clock.fixed(fixed, ZoneOffset.UTC)).build())
+        Pipeline pipeline = builder(BatonConfig.builder()
+                        .clock(Clock.fixed(fixed, ZoneOffset.UTC))
+                        .build())
                 .listener(events::add)
                 .stage("a", context -> ContextPatch.empty())
                 .build();
@@ -408,7 +476,8 @@ class ConfigurationTest {
         List<Throwable> handled = new CopyOnWriteArrayList<>();
         CountDownLatch done = new CountDownLatch(1);
         Pipeline pipeline = builder(BatonConfig.builder()
-                .listenerErrorHandler((listener, event, failure) -> handled.add(failure)).build())
+                        .listenerErrorHandler((listener, event, failure) -> handled.add(failure))
+                        .build())
                 .listener(event -> {
                     if (event instanceof RunFinished) {
                         done.countDown();
@@ -433,7 +502,9 @@ class ConfigurationTest {
         CountDownLatch release = new CountDownLatch(1);
         List<PipelineEvent> seen = new CopyOnWriteArrayList<>();
         DefaultPipelineBuilder builder = builder(BatonConfig.builder()
-                .eventBufferCapacity(4).eventOverflowPolicy(EventOverflowPolicy.DROP_OLDEST).build());
+                .eventBufferCapacity(4)
+                .eventOverflowPolicy(EventOverflowPolicy.DROP_OLDEST)
+                .build());
         for (int i = 0; i < 20; i++) {
             builder.stage("s" + i, context -> ContextPatch.empty());
         }
@@ -453,8 +524,9 @@ class ConfigurationTest {
         RunFinished last = (RunFinished) seen.getLast();
         assertThat(last.droppedEvents()).isPositive();
         // The newest events survive: the last stage's StageFinished is delivered.
-        assertThat(seen).anyMatch(event -> event instanceof StageFinished finished
-                && finished.path().stageId().equals("s19"));
+        assertThat(seen)
+                .anyMatch(event -> event instanceof StageFinished finished
+                        && finished.path().stageId().equals("s19"));
     }
 
     @Test
@@ -465,9 +537,11 @@ class ConfigurationTest {
                 .listener(childEvents::add)
                 .stage("inner", context -> ContextPatch.empty())
                 .build();
-        Pipeline off = new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
+        Pipeline off =
+                new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
         Pipeline on = builder(BatonConfig.builder().notifyNestedListeners(true).build())
-                .stage("nested", child.asStage()).build();
+                .stage("nested", child.asStage())
+                .build();
 
         off.run(ContextView.empty());
         Thread.sleep(50);
@@ -477,14 +551,18 @@ class ConfigurationTest {
         awaitRunFinished(childEvents, 1);
         assertThat(childEvents.getFirst()).isInstanceOf(RunStarted.class);
         assertThat(childEvents.getFirst().pipelineName()).isEqualTo("child");
-        assertThat(childEvents).filteredOn(StageFinished.class::isInstance).map(StageFinished.class::cast)
-                .extracting(finished -> finished.path().toString()).containsExactly("inner");
+        assertThat(childEvents)
+                .filteredOn(StageFinished.class::isInstance)
+                .map(StageFinished.class::cast)
+                .extracting(finished -> finished.path().toString())
+                .containsExactly("inner");
     }
 
     @Test
     void defaultPipelineNameAppliesToUnnamedPipelines() throws Exception {
         List<PipelineEvent> events = new CopyOnWriteArrayList<>();
-        Pipeline pipeline = builder(BatonConfig.builder().defaultPipelineName("orders").build())
+        Pipeline pipeline = builder(
+                        BatonConfig.builder().defaultPipelineName("orders").build())
                 .listener(events::add)
                 .stage("a", context -> ContextPatch.empty())
                 .build();
@@ -497,10 +575,10 @@ class ConfigurationTest {
 
     private static void awaitRunFinished(List<PipelineEvent> events, int runs) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (events.stream().filter(RunFinished.class::isInstance).count() < runs
-                && System.nanoTime() < deadline) {
+        while (events.stream().filter(RunFinished.class::isInstance).count() < runs && System.nanoTime() < deadline) {
             Thread.sleep(5);
         }
-        assertThat(events.stream().filter(RunFinished.class::isInstance).count()).isEqualTo(runs);
+        assertThat(events.stream().filter(RunFinished.class::isInstance).count())
+                .isEqualTo(runs);
     }
 }

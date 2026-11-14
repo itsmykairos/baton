@@ -8,23 +8,22 @@ import dev.baton.api.ContextView;
 import dev.baton.api.FailurePolicy;
 import dev.baton.api.KeyConflict;
 import dev.baton.api.LayerConflictPolicy;
-import dev.baton.api.OverwritePolicy;
 import dev.baton.api.NestedPipelineStage;
+import dev.baton.api.OverwritePolicy;
 import dev.baton.api.PipelineExecutionException;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.RetryPolicy;
 import dev.baton.api.Stage;
 import dev.baton.api.StageAttemptTimeoutException;
-import dev.baton.api.StageTimeoutException;
 import dev.baton.api.StageFallback;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
+import dev.baton.api.StageTimeoutException;
 import dev.baton.api.TypeClashPolicy;
 import dev.baton.api.WorkerTermination;
-import dev.baton.core.DefaultPipeline;
 import dev.baton.api.event.StagePath;
 import dev.baton.api.propagation.ExecutionScope;
-import dev.baton.api.propagation.Restoration;
+import dev.baton.core.DefaultPipeline;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.LayerDefinition;
@@ -33,7 +32,6 @@ import dev.baton.core.definition.StageNode;
 import dev.baton.core.event.RunEvents;
 import dev.baton.core.result.DefaultPipelineResult;
 import dev.baton.core.result.DefaultStageResult;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -82,6 +80,7 @@ final class ExecutionEngine {
     private final BatonConfig runConfig;
     /** Where events go: the outermost run's listeners, and a nested pipeline's own if enabled. */
     private final List<Observer> observers;
+
     private final boolean eventsEnabled;
     /** Path of the nested stage running this engine; null for the outermost run. */
     private final StagePath parentPath;
@@ -111,10 +110,19 @@ final class ExecutionEngine {
             RunEvents events,
             Deadline runDeadline,
             BatonConfig config,
-            Propagation propagation
-    ) {
-        this(definition, executor, deadlines, control, runDeadline, config, config,
-                List.of(new Observer(events, null)), null, null, propagation);
+            Propagation propagation) {
+        this(
+                definition,
+                executor,
+                deadlines,
+                control,
+                runDeadline,
+                config,
+                config,
+                List.of(new Observer(events, null)),
+                null,
+                null,
+                propagation);
     }
 
     private ExecutionEngine(
@@ -128,8 +136,7 @@ final class ExecutionEngine {
             List<Observer> observers,
             StagePath parentPath,
             Consumer<KeyConflict> parentConflicts,
-            Propagation propagation
-    ) {
+            Propagation propagation) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
@@ -138,7 +145,8 @@ final class ExecutionEngine {
         this.config = Objects.requireNonNull(config, "config");
         this.runConfig = Objects.requireNonNull(runConfig, "runConfig");
         this.observers = List.copyOf(observers);
-        this.eventsEnabled = this.observers.stream().anyMatch(observer -> observer.events().enabled());
+        this.eventsEnabled =
+                this.observers.stream().anyMatch(observer -> observer.events().enabled());
         this.parentPath = parentPath;
         this.parentConflicts = parentConflicts;
         this.propagation = Objects.requireNonNull(propagation, "propagation");
@@ -176,15 +184,14 @@ final class ExecutionEngine {
 
                 if (control.isCancelled()) {
                     return partialResult(
-                            PipelineStatus.CANCELLED,
-                            new CancellationException("Pipeline execution was cancelled")
-                    );
+                            PipelineStatus.CANCELLED, new CancellationException("Pipeline execution was cancelled"));
                 }
 
                 StageResult trigger = layerOutcome.trigger();
                 if (trigger != null) {
                     PipelineStatus status = trigger.status() == StageStatus.TIMED_OUT
-                            ? PipelineStatus.TIMED_OUT : PipelineStatus.FAILED;
+                            ? PipelineStatus.TIMED_OUT
+                            : PipelineStatus.FAILED;
                     return partialResult(status, trigger.failure().orElse(null));
                 }
                 if (merge.conflict() != null) {
@@ -192,8 +199,8 @@ final class ExecutionEngine {
                 }
                 // Stages that CONTINUE past a timeout still end the run if the run's
                 // (or nested stage's) own deadline is what expired.
-                if (inherited.isExpired() && merge.results().stream()
-                        .anyMatch(result -> result.status() == StageStatus.TIMED_OUT)) {
+                if (inherited.isExpired()
+                        && merge.results().stream().anyMatch(result -> result.status() == StageStatus.TIMED_OUT)) {
                     return partialResult(PipelineStatus.TIMED_OUT, deadlineExpired());
                 }
             }
@@ -337,8 +344,7 @@ final class ExecutionEngine {
                     cancelUnfinished(tasks, fallbacks, layerResults);
                 }
                 if (trigger == null) {
-                    pending += startStages(waiting, pending, stages, context, tasks, layerResults,
-                            startedAt, finished);
+                    pending += startStages(waiting, pending, stages, context, tasks, layerResults, startedAt, finished);
                 }
             }
         } catch (InterruptedException interrupted) {
@@ -381,8 +387,7 @@ final class ExecutionEngine {
             TrackedTask<StageExecution>[] tasks,
             StageResult[] layerResults,
             Instant[] startedAt,
-            LinkedBlockingQueue<Integer> finished
-    ) {
+            LinkedBlockingQueue<Integer> finished) {
         int limit = config.maxParallelStages();
         int started = 0;
         while (!waiting.isEmpty() && (limit == BatonConfig.UNLIMITED || running + started < limit)) {
@@ -438,11 +443,9 @@ final class ExecutionEngine {
     }
 
     private TrackedTask<StageExecution> submitStage(
-            StageNode node,
-            ContextView context,
-            Consumer<TrackedTask<StageExecution>> register
-    ) {
-        Deadline deadline = node.options().timeout()
+            StageNode node, ContextView context, Consumer<TrackedTask<StageExecution>> register) {
+        Deadline deadline = node.options()
+                .timeout()
                 .map(Deadline::after)
                 .map(inherited::min)
                 .orElse(inherited);
@@ -453,15 +456,15 @@ final class ExecutionEngine {
                 deadline,
                 deadlines,
                 // Captured here, on the coordinating thread; restored on the stage's thread.
-                propagation.wrap(() -> runAttempts(node, context, deadline, run),
+                propagation.wrap(
+                        () -> runAttempts(node, context, deadline, run),
                         propagation.scope(ExecutionScope.Kind.STAGE, run.path)),
                 run.cancel::run,
                 registered -> {
                     run.self = registered;
                     stageRuns.put(registered, run);
                     register.accept(registered);
-                }
-        );
+                });
         control.track(task);
         return task;
     }
@@ -472,12 +475,8 @@ final class ExecutionEngine {
      * time. Cancellation or expiry interrupts this thread and cancels the current
      * attempt through {@link StageRun#cancel}.
      */
-    private StageExecution runAttempts(
-            StageNode node,
-            ContextView context,
-            Deadline stageDeadline,
-            StageRun run
-    ) throws Exception {
+    private StageExecution runAttempts(StageNode node, ContextView context, Deadline stageDeadline, StageRun run)
+            throws Exception {
         long started = System.nanoTime();
         RetryPolicy retry = node.options().retry();
         for (int attempt = 1; ; attempt++) {
@@ -507,13 +506,8 @@ final class ExecutionEngine {
 
     /** One attempt: inline, or as its own task when a per-attempt timeout applies. */
     private ContextPatch runAttempt(
-            StageNode node,
-            ContextView context,
-            Deadline stageDeadline,
-            RetryPolicy retry,
-            int attempt,
-            StageRun run
-    ) throws Exception {
+            StageNode node, ContextView context, Deadline stageDeadline, RetryPolicy retry, int attempt, StageRun run)
+            throws Exception {
         if (retry.attemptTimeout().isEmpty()) {
             return attemptBody(node, context, stageDeadline, run, run.cancel);
         }
@@ -524,10 +518,10 @@ final class ExecutionEngine {
                 executor,
                 attemptDeadline,
                 deadlines,
-                propagation.wrap(() -> attemptBody(node, context, attemptDeadline, run, attemptCancel),
+                propagation.wrap(
+                        () -> attemptBody(node, context, attemptDeadline, run, attemptCancel),
                         propagation.scope(ExecutionScope.Kind.ATTEMPT, run.path)),
-                attemptCancel::run
-        );
+                attemptCancel::run);
         run.cancel.set(attemptTask::cancel);
         if (run.isDone()) {
             attemptTask.cancel();
@@ -550,19 +544,14 @@ final class ExecutionEngine {
 
     /** Runs the stage body once, with a fresh child-task scope or child engine. */
     private ContextPatch attemptBody(
-            StageNode node,
-            ContextView context,
-            Deadline deadline,
-            StageRun run,
-            CancelSlot cancel
-    ) throws Exception {
-        if (node.stage() instanceof NestedPipelineStage nested
-                && nested.pipeline() instanceof DefaultPipeline child) {
+            StageNode node, ContextView context, Deadline deadline, StageRun run, CancelSlot cancel) throws Exception {
+        if (node.stage() instanceof NestedPipelineStage nested && nested.pipeline() instanceof DefaultPipeline child) {
             ExecutionControl childControl = new ExecutionControl();
             PipelineDefinition childDefinition = child.definition();
             // Pipeline-scoped settings come from the child's own config.
             BatonConfig childConfig = childDefinition.config();
-            Deadline childDeadline = childConfig.runTimeout()
+            Deadline childDeadline = childConfig
+                    .runTimeout()
                     .map(Deadline::after)
                     .map(deadline::min)
                     .orElse(deadline);
@@ -573,13 +562,22 @@ final class ExecutionEngine {
                 childObservers.add(new Observer(observer.events(), observer.pathOf(node.id())));
             }
             RunEvents ownEvents = RunEvents.NONE;
-            if (runConfig.notifyNestedListeners() && !childDefinition.listeners().isEmpty()) {
+            if (runConfig.notifyNestedListeners()
+                    && !childDefinition.listeners().isEmpty()) {
                 ownEvents = RunEvents.create(childDefinition.name(), childDefinition.listeners(), runConfig);
                 childObservers.add(new Observer(ownEvents, null));
             }
             ExecutionEngine childEngine = new ExecutionEngine(
-                    childDefinition, executor, deadlines, childControl, childDeadline,
-                    childConfig, runConfig, childObservers, pathOf(node.id()), this::recordChildConflict,
+                    childDefinition,
+                    executor,
+                    deadlines,
+                    childControl,
+                    childDeadline,
+                    childConfig,
+                    runConfig,
+                    childObservers,
+                    pathOf(node.id()),
+                    this::recordChildConflict,
                     propagation);
             run.childEngine = childEngine;
             cancel.set(childControl::cancel);
@@ -596,8 +594,8 @@ final class ExecutionEngine {
                 return propagation.wrap(task, propagation.scope(ExecutionScope.Kind.CHILD_TASK, run.path));
             }
         };
-        DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines,
-                config.maxChildTasks(), config.unjoinedChildFailure(), inStageContext);
+        DefaultStageTasks childTasks = new DefaultStageTasks(
+                executor, deadline, deadlines, config.maxChildTasks(), config.unjoinedChildFailure(), inStageContext);
         cancel.set(childTasks::close);
         if (run.isDone()) {
             childTasks.close();
@@ -606,19 +604,15 @@ final class ExecutionEngine {
         return executeStageBody(node, context, childTasks);
     }
 
-    private ContextPatch executeStageBody(
-            StageNode node,
-            ContextView context,
-            DefaultStageTasks childTasks
-    ) throws Exception {
+    private ContextPatch executeStageBody(StageNode node, ContextView context, DefaultStageTasks childTasks)
+            throws Exception {
         ContextPatch patch;
         try {
             control.throwIfCancelled();
             Stage stage = node.stage();
             patch = Objects.requireNonNull(
                     stage.execute(new DefaultStageContext(context, childTasks)),
-                    "Stage returned a null ContextPatch: " + node.id()
-            );
+                    "Stage returned a null ContextPatch: " + node.id());
         } catch (Throwable failure) {
             // The stage's own failure wins; children are only cancelled.
             childTasks.close();
@@ -661,9 +655,14 @@ final class ExecutionEngine {
             Thread.currentThread().interrupt();
             control.cancel();
             return new DefaultStageResult(
-                    node.id(), StageStatus.CANCELLED, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), childrenOf(task), attemptsOf(task)
-            );
+                    node.id(),
+                    StageStatus.CANCELLED,
+                    Duration.ofNanos(task.elapsedNanos()),
+                    e,
+                    null,
+                    task.workerTermination(),
+                    childrenOf(task),
+                    attemptsOf(task));
         } finally {
             control.untrack(task);
         }
@@ -699,14 +698,18 @@ final class ExecutionEngine {
         }
     }
 
-    private StageResult outcomeOf(StageNode node, TrackedTask<StageExecution> task)
-            throws InterruptedException {
+    private StageResult outcomeOf(StageNode node, TrackedTask<StageExecution> task) throws InterruptedException {
         try {
             StageExecution execution = task.join();
             return new DefaultStageResult(
-                    node.id(), StageStatus.SUCCEEDED, execution.duration(), null,
-                    execution.patch(), task.workerTermination(), childrenOf(task), attemptsOf(task)
-            );
+                    node.id(),
+                    StageStatus.SUCCEEDED,
+                    execution.duration(),
+                    null,
+                    execution.patch(),
+                    task.workerTermination(),
+                    childrenOf(task),
+                    attemptsOf(task));
         } catch (StageAttemptTimeoutException e) {
             return unsuccessful(node, task, StageStatus.TIMED_OUT, e);
         } catch (TrackedTask.DeadlineExceededException e) {
@@ -718,8 +721,8 @@ final class ExecutionEngine {
         } catch (InterruptedException e) {
             throw e;
         } catch (TrackedTask.TaskExecutionException e) {
-            StageStatus status = e.getCause() instanceof InterruptedException
-                    ? StageStatus.CANCELLED : StageStatus.FAILED;
+            StageStatus status =
+                    e.getCause() instanceof InterruptedException ? StageStatus.CANCELLED : StageStatus.FAILED;
             return unsuccessful(node, task, status, e.getCause());
         } catch (Throwable e) {
             return unsuccessful(node, task, StageStatus.FAILED, e);
@@ -727,15 +730,16 @@ final class ExecutionEngine {
     }
 
     private StageResult unsuccessful(
-            StageNode node,
-            TrackedTask<StageExecution> task,
-            StageStatus status,
-            Throwable failure
-    ) {
+            StageNode node, TrackedTask<StageExecution> task, StageStatus status, Throwable failure) {
         return new DefaultStageResult(
-                node.id(), status, Duration.ofNanos(task.elapsedNanos()),
-                failure, null, task.workerTermination(), childrenOf(task), attemptsOf(task)
-        );
+                node.id(),
+                status,
+                Duration.ofNanos(task.elapsedNanos()),
+                failure,
+                null,
+                task.workerTermination(),
+                childrenOf(task),
+                attemptsOf(task));
     }
 
     private List<StageResult> childrenOf(TrackedTask<?> task) {
@@ -770,7 +774,9 @@ final class ExecutionEngine {
                 executor,
                 inherited,
                 deadlines,
-                propagation.wrap(() -> Objects.requireNonNull(fallback.recover(context, failure),
+                propagation.wrap(
+                        () -> Objects.requireNonNull(
+                                fallback.recover(context, failure),
                                 "Fallback returned a null ContextPatch: " + node.id()),
                         propagation.scope(ExecutionScope.Kind.FALLBACK, pathOf(node.id()))));
         control.track(task);
@@ -786,16 +792,26 @@ final class ExecutionEngine {
         Throwable failure = original.failure().orElse(null);
         try {
             ContextPatch patch = task.join();
-            return new DefaultStageResult(original.stageId(), StageStatus.RECOVERED, original.duration(),
-                    failure, patch, original.workerTermination(), original.children(), original.attempts());
+            return new DefaultStageResult(
+                    original.stageId(),
+                    StageStatus.RECOVERED,
+                    original.duration(),
+                    failure,
+                    patch,
+                    original.workerTermination(),
+                    original.children(),
+                    original.attempts());
         } catch (CancellationException cancelled) {
             return original;
         } catch (TrackedTask.TaskExecutionException wrapped) {
-            return wrapped.getCause() instanceof InterruptedException ? original
+            return wrapped.getCause() instanceof InterruptedException
+                    ? original
                     : fallbackFailed(original, wrapped.getCause());
         } catch (TrackedTask.DeadlineExceededException expired) {
-            return fallbackFailed(original, new StageTimeoutException("Fallback of stage '" + pathOf(node.id())
-                    + "' was stopped because the deadline of its " + enclosing() + " expired"));
+            return fallbackFailed(
+                    original,
+                    new StageTimeoutException("Fallback of stage '" + pathOf(node.id())
+                            + "' was stopped because the deadline of its " + enclosing() + " expired"));
         } catch (Throwable fallbackFailure) {
             return fallbackFailed(original, fallbackFailure);
         } finally {
@@ -805,12 +821,20 @@ final class ExecutionEngine {
 
     private static StageResult fallbackFailed(StageResult original, Throwable fallbackFailure) {
         Throwable failure = original.failure().orElse(null);
-        if (failure != null && failure != fallbackFailure
+        if (failure != null
+                && failure != fallbackFailure
                 && !java.util.Arrays.asList(fallbackFailure.getSuppressed()).contains(failure)) {
             fallbackFailure.addSuppressed(failure);
         }
-        return new DefaultStageResult(original.stageId(), StageStatus.FAILED, original.duration(),
-                fallbackFailure, null, original.workerTermination(), original.children(), original.attempts());
+        return new DefaultStageResult(
+                original.stageId(),
+                StageStatus.FAILED,
+                original.duration(),
+                fallbackFailure,
+                null,
+                original.workerTermination(),
+                original.children(),
+                original.attempts());
     }
 
     /** Runs the fallback and waits for it; used where the layer has nothing else to do. */
@@ -846,8 +870,8 @@ final class ExecutionEngine {
             awaitDone(task);
             return task.join();
         } catch (TrackedTask.DeadlineExceededException expired) {
-            throw new StageTimeoutException(what + " was stopped because the deadline of its "
-                    + enclosing() + " expired");
+            throw new StageTimeoutException(
+                    what + " was stopped because the deadline of its " + enclosing() + " expired");
         } catch (TrackedTask.TaskExecutionException wrapped) {
             if (wrapped.getCause() instanceof InterruptedException) {
                 throw new CancellationException("Pipeline execution was cancelled");
@@ -879,13 +903,15 @@ final class ExecutionEngine {
         if (own != null && !inherited.isExpired()) {
             return new StageTimeoutException(stage + " exceeded its timeout of " + format(own));
         }
-        return new StageTimeoutException(stage + " was stopped because the deadline of its "
-                + enclosing() + " expired");
+        return new StageTimeoutException(
+                stage + " was stopped because the deadline of its " + enclosing() + " expired");
     }
 
     private static String format(Duration duration) {
         long millis = duration.toMillis();
-        return millis < 1_000 ? millis + " ms" : (millis % 1_000 == 0 ? millis / 1_000 + " s" : millis / 1_000.0 + " s");
+        return millis < 1_000
+                ? millis + " ms"
+                : (millis % 1_000 == 0 ? millis / 1_000 + " s" : millis / 1_000.0 + " s");
     }
 
     private static TimeoutException deadlineExpired() {
@@ -908,14 +934,23 @@ final class ExecutionEngine {
         }
         StagePath path = pathOf(node.id());
         try {
-            boolean run = runBounded(() -> condition.test(context),
-                    propagation.scope(ExecutionScope.Kind.CONDITION, path), "Condition of stage '" + path + "'");
+            boolean run = runBounded(
+                    () -> condition.test(context),
+                    propagation.scope(ExecutionScope.Kind.CONDITION, path),
+                    "Condition of stage '" + path + "'");
             return run ? null : skipped(node);
         } catch (CancellationException cancelled) {
             throw cancelled;
         } catch (Throwable failure) {
-            StageResult failed = new DefaultStageResult(node.id(), StageStatus.FAILED, Duration.ZERO,
-                    failure, null, WorkerTermination.NOT_STARTED, List.of(), 0);
+            StageResult failed = new DefaultStageResult(
+                    node.id(),
+                    StageStatus.FAILED,
+                    Duration.ZERO,
+                    failure,
+                    null,
+                    WorkerTermination.NOT_STARTED,
+                    List.of(),
+                    0);
             return withFallbackNow(node, context, failed);
         }
     }
@@ -955,7 +990,9 @@ final class ExecutionEngine {
         int appliedCount = 0;
         for (int i = 0; i < size; i++) {
             StageResult result = layerResults.get(i);
-            if (isApplied(result.status()) && result.output().isPresent() && !result.output().get().isEmpty()) {
+            if (isApplied(result.status())
+                    && result.output().isPresent()
+                    && !result.output().get().isEmpty()) {
                 patches[i] = result.output().get();
                 appliedCount++;
             }
@@ -965,7 +1002,9 @@ final class ExecutionEngine {
             for (int i = 0; i < size; i++) {
                 if (patches[i] != null) {
                     for (ContextKey<?> key : patches[i].writtenKeys()) {
-                        writersByName.computeIfAbsent(key.name(), ignored -> new ArrayList<>(2)).add(i);
+                        writersByName
+                                .computeIfAbsent(key.name(), ignored -> new ArrayList<>(2))
+                                .add(i);
                     }
                 }
             }
@@ -988,28 +1027,30 @@ final class ExecutionEngine {
                     continue;
                 }
                 List<StagePath> paths = writers.stream()
-                        .map(i -> pathOf(layerResults.get(i).stageId())).toList();
-                List<String> ids = writers.stream().map(i -> layerResults.get(i).stageId()).toList();
+                        .map(i -> pathOf(layerResults.get(i).stageId()))
+                        .toList();
+                List<String> ids =
+                        writers.stream().map(i -> layerResults.get(i).stageId()).toList();
                 switch (config.layerConflictPolicy()) {
                     case FAIL -> {
                         writers.forEach(i -> problem(problems, i, name + " also written in the same layer by " + ids));
-                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
-                                KeyConflict.Resolution.FAILED));
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.SAME_LAYER, name, paths, KeyConflict.Resolution.FAILED));
                     }
                     case FIRST_WINS -> {
                         writers.subList(1, writers.size()).forEach(i -> drop(dropped, i, name));
-                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
-                                KeyConflict.Resolution.FIRST_WINS));
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.SAME_LAYER, name, paths, KeyConflict.Resolution.FIRST_WINS));
                     }
                     case LAST_WINS -> {
                         writers.subList(0, writers.size() - 1).forEach(i -> drop(dropped, i, name));
-                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
-                                KeyConflict.Resolution.LAST_WINS));
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.SAME_LAYER, name, paths, KeyConflict.Resolution.LAST_WINS));
                     }
                     case SKIP_KEY -> {
                         writers.forEach(i -> drop(dropped, i, name));
-                        recordConflict(new KeyConflict(KeyConflict.Kind.SAME_LAYER, name, paths,
-                                KeyConflict.Resolution.KEY_SKIPPED));
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.SAME_LAYER, name, paths, KeyConflict.Resolution.KEY_SKIPPED));
                     }
                 }
             }
@@ -1020,8 +1061,8 @@ final class ExecutionEngine {
             if (patches[i] == null) {
                 continue;
             }
-            OverwritePolicy overwrite = stages.get(i).options().overwritePolicy()
-                    .orElse(config.overwritePolicy());
+            OverwritePolicy overwrite =
+                    stages.get(i).options().overwritePolicy().orElse(config.overwritePolicy());
             for (ContextKey<?> key : patches[i].writtenKeys()) {
                 if (dropped[i] != null && dropped[i].contains(key.name())) {
                     continue;
@@ -1033,27 +1074,36 @@ final class ExecutionEngine {
                 StagePath path = pathOf(layerResults.get(i).stageId());
                 if (!existing.type().equals(key.type())) {
                     if (config.typeClashPolicy() == TypeClashPolicy.FAIL) {
-                        problem(problems, i, key.name() + " already holds " + existing.type().getName()
-                                + ", not " + key.type().getName());
-                        recordConflict(new KeyConflict(KeyConflict.Kind.TYPE_CLASH, key.name(), List.of(path),
-                                KeyConflict.Resolution.FAILED));
+                        problem(
+                                problems,
+                                i,
+                                key.name() + " already holds " + existing.type().getName() + ", not "
+                                        + key.type().getName());
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.TYPE_CLASH, key.name(), List.of(path), KeyConflict.Resolution.FAILED));
                     } else {
-                        recordConflict(new KeyConflict(KeyConflict.Kind.TYPE_CLASH, key.name(), List.of(path),
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.TYPE_CLASH,
+                                key.name(),
+                                List.of(path),
                                 KeyConflict.Resolution.REPLACED));
                     }
                     continue;
                 }
                 switch (overwrite) {
-                    case OVERRIDE -> { }
+                    case OVERRIDE -> {}
                     case KEEP_EXISTING -> {
                         drop(dropped, i, key.name());
-                        recordConflict(new KeyConflict(KeyConflict.Kind.OVERWRITE, key.name(), List.of(path),
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.OVERWRITE,
+                                key.name(),
+                                List.of(path),
                                 KeyConflict.Resolution.KEPT_EXISTING));
                     }
                     case FAIL -> {
                         problem(problems, i, key.name() + " is already in the context");
-                        recordConflict(new KeyConflict(KeyConflict.Kind.OVERWRITE, key.name(), List.of(path),
-                                KeyConflict.Resolution.FAILED));
+                        recordConflict(new KeyConflict(
+                                KeyConflict.Kind.OVERWRITE, key.name(), List.of(path), KeyConflict.Resolution.FAILED));
                     }
                 }
             }
@@ -1065,17 +1115,20 @@ final class ExecutionEngine {
         for (int i = 0; i < size; i++) {
             StageResult result = layerResults.get(i);
             if (problems[i] != null) {
-                ContextMergeException conflict = new ContextMergeException(
-                        "Stage '" + result.stageId() + "' has conflicting context writes: "
-                                + String.join("; ", problems[i]));
+                ContextMergeException conflict = new ContextMergeException("Stage '" + result.stageId()
+                        + "' has conflicting context writes: " + String.join("; ", problems[i]));
                 if (firstConflict == null) {
                     firstConflict = conflict;
                 }
                 adjusted.add(new DefaultStageResult(
-                        result.stageId(), StageStatus.FAILED, result.duration(), conflict,
-                        result.output().orElse(null), result.workerTermination(), result.children(),
-                        result.attempts()
-                ));
+                        result.stageId(),
+                        StageStatus.FAILED,
+                        result.duration(),
+                        conflict,
+                        result.output().orElse(null),
+                        result.workerTermination(),
+                        result.children(),
+                        result.attempts()));
             } else {
                 adjusted.add(result);
                 if (patches[i] != null) {
@@ -1083,7 +1136,8 @@ final class ExecutionEngine {
                 }
             }
         }
-        ContextPatch merged = applied.isEmpty() ? ContextPatch.empty()
+        ContextPatch merged = applied.isEmpty()
+                ? ContextPatch.empty()
                 : applied.size() == 1 ? applied.getFirst() : ContextPatch.merge(applied);
         return new MergeOutcome(adjusted, merged, firstConflict);
     }
@@ -1183,8 +1237,7 @@ final class ExecutionEngine {
     }
 
     private StagePath pathOf(String stageId) {
-        return paths.computeIfAbsent(stageId,
-                id -> parentPath == null ? StagePath.of(id) : parentPath.child(id));
+        return paths.computeIfAbsent(stageId, id -> parentPath == null ? StagePath.of(id) : parentPath.child(id));
     }
 
     /** SUCCEEDED and RECOVERED stages have their patch applied. */
@@ -1193,8 +1246,7 @@ final class ExecutionEngine {
     }
 
     private static boolean stopsPipeline(StageNode node, StageResult result) {
-        boolean unsuccessful = result.status() == StageStatus.FAILED
-                || result.status() == StageStatus.TIMED_OUT;
+        boolean unsuccessful = result.status() == StageStatus.FAILED || result.status() == StageStatus.TIMED_OUT;
         return unsuccessful && node.options().failurePolicy() == FailurePolicy.FAIL_FAST;
     }
 
@@ -1205,26 +1257,31 @@ final class ExecutionEngine {
     }
 
     private StageResult skipped(StageNode node) {
-        return new DefaultStageResult(node.id(), StageStatus.SKIPPED, Duration.ZERO,
-                null, null, WorkerTermination.NOT_STARTED, List.of(), 0);
+        return new DefaultStageResult(
+                node.id(), StageStatus.SKIPPED, Duration.ZERO, null, null, WorkerTermination.NOT_STARTED, List.of(), 0);
     }
 
     private StageResult blocked(StageNode node) {
-        return new DefaultStageResult(node.id(), StageStatus.BLOCKED, Duration.ZERO,
-                null, null, WorkerTermination.NOT_STARTED, List.of());
+        return new DefaultStageResult(
+                node.id(), StageStatus.BLOCKED, Duration.ZERO, null, null, WorkerTermination.NOT_STARTED, List.of());
     }
 
     private StageResult cancelledBeforeStart(StageNode node) {
-        return new DefaultStageResult(node.id(), StageStatus.CANCELLED, Duration.ZERO,
+        return new DefaultStageResult(
+                node.id(),
+                StageStatus.CANCELLED,
+                Duration.ZERO,
                 new CancellationException("Pipeline execution was cancelled"),
-                null, WorkerTermination.NOT_STARTED, List.of());
+                null,
+                WorkerTermination.NOT_STARTED,
+                List.of());
     }
 
     private Duration elapsed(long started) {
         return Duration.ofNanos(System.nanoTime() - started);
     }
 
-    private record StageExecution(ContextPatch patch, Duration duration) { }
+    private record StageExecution(ContextPatch patch, Duration duration) {}
 
     /** An event destination, and the path prefix its stage paths get (null for none). */
     private record Observer(RunEvents events, StagePath prefix) {
@@ -1235,7 +1292,7 @@ final class ExecutionEngine {
 
     /** A replaceable cancellation action: whatever the current attempt must cancel. */
     private static final class CancelSlot {
-        private volatile Runnable action = () -> { };
+        private volatile Runnable action = () -> {};
 
         void set(Runnable action) {
             this.action = action;
@@ -1265,18 +1322,10 @@ final class ExecutionEngine {
     }
 
     /** A layer's results in definition order, and the FAIL_FAST result that stops the run, if any. */
-    private record LayerOutcome(List<StageResult> results, StageResult trigger, Instant[] startedAt) { }
+    private record LayerOutcome(List<StageResult> results, StageResult trigger, Instant[] startedAt) {}
 
     /** The layer in flight; its arrays are only read or written under {@link #state}. */
-    private record ActiveLayer(
-            List<StageNode> stages,
-            TrackedTask<StageExecution>[] tasks,
-            StageResult[] results
-    ) { }
+    private record ActiveLayer(List<StageNode> stages, TrackedTask<StageExecution>[] tasks, StageResult[] results) {}
 
-    private record MergeOutcome(
-            List<StageResult> results,
-            ContextPatch patch,
-            ContextMergeException conflict
-    ) { }
+    private record MergeOutcome(List<StageResult> results, ContextPatch patch, ContextMergeException conflict) {}
 }

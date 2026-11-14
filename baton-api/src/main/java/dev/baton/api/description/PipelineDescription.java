@@ -1,7 +1,6 @@
 package dev.baton.api.description;
 
 import dev.baton.api.BatonConfig;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,7 +48,10 @@ public record PipelineDescription(String name, List<LayerDescription> layers, Ba
             if (level == null) {
                 return Optional.empty();
             }
-            found = level.stages().stream().filter(stage -> stage.id().equals(id)).findFirst().orElse(null);
+            found = level.stages().stream()
+                    .filter(stage -> stage.id().equals(id))
+                    .findFirst()
+                    .orElse(null);
             if (found == null) {
                 return Optional.empty();
             }

@@ -3,7 +3,6 @@ package dev.baton.core.execution;
 import dev.baton.api.ContextView;
 import dev.baton.api.StageContext;
 import dev.baton.api.StageTasks;
-
 import java.util.Objects;
 
 final class DefaultStageContext implements StageContext {

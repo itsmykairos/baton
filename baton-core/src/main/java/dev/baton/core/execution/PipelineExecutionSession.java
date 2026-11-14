@@ -15,12 +15,11 @@ import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.event.RunEvents;
 import dev.baton.core.result.DefaultPipelineResult;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -35,8 +34,7 @@ public final class PipelineExecutionSession implements PipelineRun {
     private final DeadlineScheduler deadlines = DeadlineScheduler.shared();
     private final ExecutionControl control = new ExecutionControl();
     private final CompletableFuture<PipelineResult> completion = new CompletableFuture<>();
-    private final AtomicReference<PipelineRunStatus> status =
-            new AtomicReference<>(PipelineRunStatus.CREATED);
+    private final AtomicReference<PipelineRunStatus> status = new AtomicReference<>(PipelineRunStatus.CREATED);
     private final Object completionLock = new Object();
     private final ExecutionEngine engine;
     private final RunEvents events;
@@ -58,11 +56,9 @@ public final class PipelineExecutionSession implements PipelineRun {
         UUID runId = RunEvents.newRunId();
         this.events = RunEvents.create(definition.name(), listeners, config, runId);
         this.propagation = new Propagation(runId, definition.name(), config.contextPropagators());
-        Deadline runDeadline = config.runTimeout()
-                .map(Deadline::after)
-                .orElseGet(Deadline::unlimited);
-        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline, config,
-                propagation);
+        Deadline runDeadline = config.runTimeout().map(Deadline::after).orElseGet(Deadline::unlimited);
+        this.engine =
+                new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline, config, propagation);
     }
 
     public PipelineResult executeSync() throws InterruptedException {
@@ -98,8 +94,7 @@ public final class PipelineExecutionSession implements PipelineRun {
             } catch (Throwable failure) {
                 boolean cancelled = control.isCancelled();
                 control.abort();
-                PipelineStatus pipelineStatus = cancelled
-                        ? PipelineStatus.CANCELLED : PipelineStatus.FAILED;
+                PipelineStatus pipelineStatus = cancelled ? PipelineStatus.CANCELLED : PipelineStatus.FAILED;
                 complete(partialResult(pipelineStatus, failure));
             } finally {
                 shutdownResources();
@@ -118,8 +113,8 @@ public final class PipelineExecutionSession implements PipelineRun {
                 throw failure;
             }
             if (result.status() != PipelineStatus.COMPLETED) {
-                restoration.failed(result.failure().orElseGet(
-                        () -> new IllegalStateException("Pipeline ended " + result.status())));
+                restoration.failed(result.failure()
+                        .orElseGet(() -> new IllegalStateException("Pipeline ended " + result.status())));
             }
             return result;
         }
@@ -144,11 +139,8 @@ public final class PipelineExecutionSession implements PipelineRun {
                         PipelineStatus.CANCELLED,
                         result.context(),
                         result.stages(),
-                        new java.util.concurrent.CancellationException(
-                                "Pipeline execution was cancelled"
-                        ),
-                        result.conflicts()
-                );
+                        new java.util.concurrent.CancellationException("Pipeline execution was cancelled"),
+                        result.conflicts());
             }
             PipelineRunStatus terminalStatus = switch (result.status()) {
                 case COMPLETED -> PipelineRunStatus.COMPLETED;

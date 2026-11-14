@@ -8,10 +8,8 @@ import dev.baton.api.event.PipelineListener;
 import dev.baton.core.definition.LayerDefinition;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.definition.StageNode;
-
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Optional;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -61,21 +59,14 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
     }
 
     @Override
-    public DefaultPipelineBuilder stage(
-            String id,
-            Stage stage
-    ) {
+    public DefaultPipelineBuilder stage(String id, Stage stage) {
         stage(id, stage, StageOptions.defaults());
         inheritOptions.add(id);
         return this;
     }
 
     @Override
-    public DefaultPipelineBuilder stage(
-            String id,
-            Stage stage,
-            StageOptions options
-    ) {
+    public DefaultPipelineBuilder stage(String id, Stage stage, StageOptions options) {
         ensureOpen();
 
         StageNode node = new StageNode(id, stage, options);
@@ -85,11 +76,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         // A sequential layer uses its stage ID as its layer ID.
         validateLayerId(node.id());
 
-        LayerDefinition layer = new LayerDefinition(
-                node.id(),
-                LayerDefinition.Type.SEQUENTIAL,
-                List.of(node)
-        );
+        LayerDefinition layer = new LayerDefinition(node.id(), LayerDefinition.Type.SEQUENTIAL, List.of(node));
 
         stageIds.add(node.id());
         layerIds.add(layer.id());
@@ -99,10 +86,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
     }
 
     @Override
-    public DefaultPipelineBuilder parallel(
-            String id,
-            Consumer<Pipeline.ParallelBuilder> definition
-    ) {
+    public DefaultPipelineBuilder parallel(String id, Consumer<Pipeline.ParallelBuilder> definition) {
         ensureOpen();
 
         StageNode.requireId(id, "layer id");
@@ -110,22 +94,16 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
 
         validateLayerId(id);
 
-        DefaultParallelBuilder parallelBuilder =
-                new DefaultParallelBuilder();
+        DefaultParallelBuilder parallelBuilder = new DefaultParallelBuilder();
 
         // If the callback fails, nothing is added to this pipeline.
         definition.accept(parallelBuilder);
 
-        List<StageNode> parallelStages =
-                parallelBuilder.finish();
+        List<StageNode> parallelStages = parallelBuilder.finish();
 
         validateParallelStageIds(parallelStages);
 
-        LayerDefinition layer = new LayerDefinition(
-                id,
-                LayerDefinition.Type.PARALLEL,
-                parallelStages
-        );
+        LayerDefinition layer = new LayerDefinition(id, LayerDefinition.Type.PARALLEL, parallelStages);
 
         layerIds.add(id);
 
@@ -149,10 +127,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         built = true;
 
         PipelineDefinition definition = new PipelineDefinition(
-                name != null ? name : config.defaultPipelineName(),
-                withDefaultOptions(layers),
-                listeners,
-                config);
+                name != null ? name : config.defaultPipelineName(), withDefaultOptions(layers), listeners, config);
 
         return new dev.baton.core.DefaultPipeline(definition);
     }
@@ -179,36 +154,27 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         Set<String> localIds = new HashSet<>();
 
         for (StageNode stage : stages) {
-            if (stageIds.contains(stage.id())
-                    || !localIds.add(stage.id())) {
-                throw new IllegalArgumentException(
-                        "Duplicate stage id: " + stage.id()
-                );
+            if (stageIds.contains(stage.id()) || !localIds.add(stage.id())) {
+                throw new IllegalArgumentException("Duplicate stage id: " + stage.id());
             }
         }
     }
 
     private void validateStageId(String id) {
         if (stageIds.contains(id)) {
-            throw new IllegalArgumentException(
-                    "Duplicate stage id: " + id
-            );
+            throw new IllegalArgumentException("Duplicate stage id: " + id);
         }
     }
 
     private void validateLayerId(String id) {
         if (layerIds.contains(id)) {
-            throw new IllegalArgumentException(
-                    "Duplicate layer id: " + id
-            );
+            throw new IllegalArgumentException("Duplicate layer id: " + id);
         }
     }
 
     private void ensureOpen() {
         if (built) {
-            throw new IllegalStateException(
-                    "Pipeline builder has already been used"
-            );
+            throw new IllegalStateException("Pipeline builder has already been used");
         }
     }
 }

@@ -1,11 +1,10 @@
 package dev.baton.core.deadline;
 
-import org.junit.jupiter.api.Test;
-
-import java.time.Duration;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+
+import java.time.Duration;
+import org.junit.jupiter.api.Test;
 
 class DeadlineTest {
 
@@ -31,10 +30,8 @@ class DeadlineTest {
 
     @Test
     void rejectsNonPositiveDuration() {
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> Deadline.after(Duration.ZERO));
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> Deadline.after(Duration.ofNanos(-1)));
+        assertThatIllegalArgumentException().isThrownBy(() -> Deadline.after(Duration.ZERO));
+        assertThatIllegalArgumentException().isThrownBy(() -> Deadline.after(Duration.ofNanos(-1)));
     }
 
     @Test

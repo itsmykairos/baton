@@ -6,6 +6,13 @@ import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.StageOptions;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -16,14 +23,6 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
-
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Per-run overhead of the engine for trivial stages, so the numbers are the
@@ -61,7 +60,8 @@ public class EngineBenchmark {
         for (int i = 0; i < WRITES; i++) {
             ContextKey<Integer> key = ContextKey.of("k" + i, Integer.class);
             int value = i;
-            writes.stage("w" + i, context -> ContextPatch.builder().put(key, value).build());
+            writes.stage(
+                    "w" + i, context -> ContextPatch.builder().put(key, value).build());
         }
         sequentialWrites = writes.build();
 
@@ -73,7 +73,9 @@ public class EngineBenchmark {
                 })
                 .build();
 
-        Pipeline inner = Pipeline.builder().stage("leaf", context -> ContextPatch.empty()).build();
+        Pipeline inner = Pipeline.builder()
+                .stage("leaf", context -> ContextPatch.empty())
+                .build();
         for (int level = 0; level < DEPTH - 1; level++) {
             inner = Pipeline.builder().stage("level" + level, inner.asStage()).build();
         }
@@ -85,7 +87,7 @@ public class EngineBenchmark {
     private static Pipeline sequential(StageOptions options, boolean listener) {
         Pipeline.Builder builder = Pipeline.builder();
         if (listener) {
-            builder.listener(event -> { });
+            builder.listener(event -> {});
         }
         for (int i = 0; i < STAGES; i++) {
             builder.stage("s" + i, context -> ContextPatch.empty(), options);

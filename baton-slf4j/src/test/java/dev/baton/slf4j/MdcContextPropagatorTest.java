@@ -1,16 +1,15 @@
 package dev.baton.slf4j;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
-import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 
 class MdcContextPropagatorTest {
 
@@ -30,7 +29,9 @@ class MdcContextPropagatorTest {
                 .name("checkout")
                 .stage("load", context -> {
                     seen.put("load", MDC.getCopyOfContextMap());
-                    seen.put("child", context.tasks().fork(MDC::getCopyOfContextMap).join());
+                    seen.put(
+                            "child",
+                            context.tasks().fork(MDC::getCopyOfContextMap).join());
                     return ContextPatch.empty();
                 })
                 .stage("payment", payment.asStage())
@@ -39,7 +40,8 @@ class MdcContextPropagatorTest {
         MDC.put("requestId", "req-42");
         try {
             checkout.run(ContextView.empty());
-            assertThat(MDC.getCopyOfContextMap()).as("caller MDC unchanged")
+            assertThat(MDC.getCopyOfContextMap())
+                    .as("caller MDC unchanged")
                     .containsOnly(Map.entry("requestId", "req-42"));
         } finally {
             MDC.clear();
@@ -50,9 +52,11 @@ class MdcContextPropagatorTest {
                 .containsEntry(MdcContextPropagator.PIPELINE, "checkout")
                 .containsEntry(MdcContextPropagator.STAGE, "load")
                 .containsKey(MdcContextPropagator.RUN_ID);
-        assertThat(seen.get("child")).containsEntry(MdcContextPropagator.STAGE, "load")
+        assertThat(seen.get("child"))
+                .containsEntry(MdcContextPropagator.STAGE, "load")
                 .containsEntry("requestId", "req-42");
-        assertThat(seen.get("charge")).containsEntry(MdcContextPropagator.STAGE, "payment/charge")
+        assertThat(seen.get("charge"))
+                .containsEntry(MdcContextPropagator.STAGE, "payment/charge")
                 .containsEntry("requestId", "req-42")
                 .containsEntry(MdcContextPropagator.RUN_ID, seen.get("load").get(MdcContextPropagator.RUN_ID));
     }

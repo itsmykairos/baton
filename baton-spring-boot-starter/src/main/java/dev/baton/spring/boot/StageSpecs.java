@@ -6,23 +6,25 @@ import dev.baton.api.StageFallback;
 import dev.baton.api.StageOptions;
 import dev.baton.spring.boot.BatonProperties.RetrySpec;
 import dev.baton.spring.boot.BatonProperties.StageSpec;
-import org.springframework.beans.factory.BeanFactory;
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
-
 import java.time.Duration;
 import java.util.function.Predicate;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 
 /** Turns configured stage options into {@link StageOptions}. */
 final class StageSpecs {
 
-    private StageSpecs() {
-    }
+    private StageSpecs() {}
 
     /** True if the spec sets any stage option. */
     static boolean hasOptions(StageSpec spec) {
-        return spec.timeout() != null || spec.failurePolicy() != null || spec.retry() != null
-                || spec.fallback() != null || spec.condition() != null
-                || spec.skipIfInputsMissing() != null || spec.overwritePolicy() != null;
+        return spec.timeout() != null
+                || spec.failurePolicy() != null
+                || spec.retry() != null
+                || spec.fallback() != null
+                || spec.condition() != null
+                || spec.skipIfInputsMissing() != null
+                || spec.overwritePolicy() != null;
     }
 
     /**
@@ -75,7 +77,8 @@ final class StageSpecs {
         RetryPolicy retry = RetryPolicy.maxAttempts(spec.maxAttempts());
         if (spec.backoff() != null) {
             double multiplier = spec.multiplier() != null ? spec.multiplier() : 1.0;
-            Duration maxDelay = spec.maxDelay() != null ? spec.maxDelay()
+            Duration maxDelay = spec.maxDelay() != null
+                    ? spec.maxDelay()
                     : multiplier > 1.0 ? spec.backoff().multipliedBy(32) : spec.backoff();
             retry = retry.withBackoff(spec.backoff(), multiplier, maxDelay);
         }
@@ -86,8 +89,8 @@ final class StageSpecs {
             retry = retry.withAttemptTimeout(spec.attemptTimeout());
         }
         if (spec.retryOn() != null) {
-            retry = retry.retryOn((Predicate<Throwable>) bean(beans, spec.retryOn(), Predicate.class,
-                    where + ".retry-on"));
+            retry = retry.retryOn(
+                    (Predicate<Throwable>) bean(beans, spec.retryOn(), Predicate.class, where + ".retry-on"));
         }
         return retry;
     }

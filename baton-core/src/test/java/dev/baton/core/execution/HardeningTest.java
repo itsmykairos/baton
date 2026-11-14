@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
@@ -16,15 +18,12 @@ import dev.baton.api.propagation.ContextPropagator;
 import dev.baton.api.propagation.ExecutionScope;
 import dev.baton.api.propagation.Restoration;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 /** Regression tests for the code-review findings. */
 class HardeningTest {
@@ -39,12 +38,15 @@ class HardeningTest {
     void hangingFallbackIsStoppedByTheRunTimeout() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .timeout(Duration.ofMillis(200))
-                .stage("fails", context -> {
-                    throw new IllegalStateException("down");
-                }, StageOptions.defaults().withFallback((context, failure) -> {
-                    Thread.sleep(10_000);
-                    return ContextPatch.empty();
-                }))
+                .stage(
+                        "fails",
+                        context -> {
+                            throw new IllegalStateException("down");
+                        },
+                        StageOptions.defaults().withFallback((context, failure) -> {
+                            Thread.sleep(10_000);
+                            return ContextPatch.empty();
+                        }))
                 .build();
 
         long start = System.nanoTime();
@@ -56,19 +58,23 @@ class HardeningTest {
                 .isExactlyInstanceOf(StageTimeoutException.class)
                 .hasMessage("Fallback of stage 'fails' was stopped because the deadline of its run expired");
         assertThat(result.stages().getFirst().failure().orElseThrow().getSuppressed())
-                .extracting(Throwable::getMessage).containsExactly("down");
+                .extracting(Throwable::getMessage)
+                .containsExactly("down");
     }
 
     @Test
     void slowFallbackDoesNotDelayFailFastCancellation() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .parallel("layer", parallel -> {
-                    parallel.stage("recovering", context -> {
-                        throw new IllegalStateException("first");
-                    }, StageOptions.defaults().withFallback((context, failure) -> {
-                        Thread.sleep(10_000);
-                        return ContextPatch.empty();
-                    }));
+                    parallel.stage(
+                            "recovering",
+                            context -> {
+                                throw new IllegalStateException("first");
+                            },
+                            StageOptions.defaults().withFallback((context, failure) -> {
+                                Thread.sleep(10_000);
+                                return ContextPatch.empty();
+                            }));
                     parallel.stage("fails", context -> {
                         Thread.sleep(50);
                         throw new IllegalStateException("second");
@@ -91,12 +97,17 @@ class HardeningTest {
     void fallbackStillRecoversWhileOtherStagesRun() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .parallel("layer", parallel -> {
-                    parallel.stage("recovering", context -> {
-                        throw new IllegalStateException("down");
-                    }, StageOptions.defaults().withFallback((context, failure) -> {
-                        Thread.sleep(50);
-                        return ContextPatch.builder().put(VALUE, "fallback").build();
-                    }));
+                    parallel.stage(
+                            "recovering",
+                            context -> {
+                                throw new IllegalStateException("down");
+                            },
+                            StageOptions.defaults().withFallback((context, failure) -> {
+                                Thread.sleep(50);
+                                return ContextPatch.builder()
+                                        .put(VALUE, "fallback")
+                                        .build();
+                            }));
                     parallel.stage("other", context -> ContextPatch.empty());
                 })
                 .build();
@@ -112,8 +123,10 @@ class HardeningTest {
     void hangingConditionIsStoppedByTheRunTimeoutAndByCancel() throws Exception {
         Pipeline timed = new DefaultPipelineBuilder()
                 .timeout(Duration.ofMillis(200))
-                .stage("guarded", context -> ContextPatch.empty(), StageOptions.defaults()
-                        .withCondition(context -> {
+                .stage(
+                        "guarded",
+                        context -> ContextPatch.empty(),
+                        StageOptions.defaults().withCondition(context -> {
                             try {
                                 Thread.sleep(10_000);
                             } catch (InterruptedException e) {
@@ -133,8 +146,10 @@ class HardeningTest {
 
         CountDownLatch evaluating = new CountDownLatch(1);
         Pipeline cancellable = new DefaultPipelineBuilder()
-                .stage("guarded", context -> ContextPatch.empty(), StageOptions.defaults()
-                        .withCondition(context -> {
+                .stage(
+                        "guarded",
+                        context -> ContextPatch.empty(),
+                        StageOptions.defaults().withCondition(context -> {
                             evaluating.countDown();
                             try {
                                 Thread.sleep(10_000);
@@ -160,8 +175,10 @@ class HardeningTest {
                 })
                 .build();
         Pipeline parent = new DefaultPipelineBuilder()
-                .stage("nested", child.asStage(), StageOptions.defaults()
-                        .withFallback((context, failure) -> ContextPatch.empty()))
+                .stage(
+                        "nested",
+                        child.asStage(),
+                        StageOptions.defaults().withFallback((context, failure) -> ContextPatch.empty()))
                 .build();
 
         PipelineResult result = parent.run(ContextView.empty());
@@ -188,14 +205,19 @@ class HardeningTest {
             }
         };
         BatonConfig app = BatonConfig.builder().contextPropagator(counting).build();
-        Pipeline pipeline = new DefaultPipelineBuilder().config(app)
+        Pipeline pipeline = new DefaultPipelineBuilder()
+                .config(app)
                 .stage("a", context -> ContextPatch.empty())
                 .build();
 
         pipeline.run(ContextView.empty());
         int perRun = restores.getAndSet(0);
-        pipeline.run(ContextView.empty(), RunOptions.defaults()
-                .withConfig(app.toBuilder().runTimeout(Duration.ofSeconds(5)).build()));
+        pipeline.run(
+                ContextView.empty(),
+                RunOptions.defaults()
+                        .withConfig(app.toBuilder()
+                                .runTimeout(Duration.ofSeconds(5))
+                                .build()));
 
         assertThat(perRun).isEqualTo(2); // the run and the stage
         assertThat(restores.get()).isEqualTo(perRun);
@@ -208,19 +230,22 @@ class HardeningTest {
         IllegalStateException second = new IllegalStateException("second");
         AtomicReference<Throwable> reported = new AtomicReference<>();
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("parent", context -> {
-                    var a = context.tasks().fork(() -> {
-                        throw first;
-                    });
-                    var b = context.tasks().fork(() -> {
-                        throw second;
-                    });
-                    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-                    while ((!a.isDone() || !b.isDone()) && System.nanoTime() < until) {
-                        Thread.sleep(5);
-                    }
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage(
+                        "parent",
+                        context -> {
+                            var a = context.tasks().fork(() -> {
+                                throw first;
+                            });
+                            var b = context.tasks().fork(() -> {
+                                throw second;
+                            });
+                            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                            while ((!a.isDone() || !b.isDone()) && System.nanoTime() < until) {
+                                Thread.sleep(5);
+                            }
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());

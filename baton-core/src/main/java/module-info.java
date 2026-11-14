@@ -5,6 +5,6 @@
 module dev.baton.core {
     requires dev.baton.api;
 
-    provides dev.baton.api.PipelineProvider
-            with dev.baton.core.DefaultPipelineProvider;
+    provides dev.baton.api.PipelineProvider with
+            dev.baton.core.DefaultPipelineProvider;
 }

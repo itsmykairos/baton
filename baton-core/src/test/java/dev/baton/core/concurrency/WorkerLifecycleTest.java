@@ -1,13 +1,12 @@
 package dev.baton.core.concurrency;
 
-import dev.baton.api.WorkerTermination;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.baton.api.WorkerTermination;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class WorkerLifecycleTest {
 
@@ -37,7 +36,7 @@ class WorkerLifecycleTest {
 
             started.countDown();
             try {
-                for (;;) {
+                for (; ; ) {
                     try {
                         allowExit.await();
                         break;

@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
@@ -14,14 +16,11 @@ import dev.baton.api.StageOptions;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class NestedPipelineTest {
 
@@ -31,14 +30,18 @@ class NestedPipelineTest {
     @Test
     void childWritesReachParentIncludingEqualValueRewrites() throws Exception {
         Pipeline child = new DefaultPipelineBuilder()
-                .stage("rewrite", context -> ContextPatch.builder().put(VALUE, "same").build())
-                .stage("add", context -> ContextPatch.builder().put(OTHER, "new").build())
+                .stage(
+                        "rewrite",
+                        context -> ContextPatch.builder().put(VALUE, "same").build())
+                .stage(
+                        "add",
+                        context -> ContextPatch.builder().put(OTHER, "new").build())
                 .build();
-        Pipeline parent = new DefaultPipelineBuilder()
-                .stage("nested", child.asStage())
-                .build();
+        Pipeline parent =
+                new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
 
-        PipelineResult result = parent.run(ContextView.builder().put(VALUE, "same").build());
+        PipelineResult result =
+                parent.run(ContextView.builder().put(VALUE, "same").build());
 
         assertThat(result.isSuccessful()).isTrue();
         StageResult nested = result.stages().getFirst();
@@ -50,21 +53,24 @@ class NestedPipelineTest {
     @Test
     void equalValueWriteFromNestedStageConflictsWithParallelSibling() throws Exception {
         Pipeline child = new DefaultPipelineBuilder()
-                .stage("rewrite", context -> ContextPatch.builder().put(VALUE, "same").build())
+                .stage(
+                        "rewrite",
+                        context -> ContextPatch.builder().put(VALUE, "same").build())
                 .build();
         Pipeline parent = new DefaultPipelineBuilder()
                 .parallel("layer", parallel -> {
                     parallel.stage("nested", child.asStage());
-                    parallel.stage("sibling", context ->
-                            ContextPatch.builder().put(VALUE, "same").build());
+                    parallel.stage(
+                            "sibling",
+                            context -> ContextPatch.builder().put(VALUE, "same").build());
                 })
                 .build();
 
-        PipelineResult result = parent.run(ContextView.builder().put(VALUE, "same").build());
+        PipelineResult result =
+                parent.run(ContextView.builder().put(VALUE, "same").build());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.FAILED, StageStatus.FAILED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.FAILED, StageStatus.FAILED);
         assertThat(result.failure().orElseThrow()).isInstanceOf(ContextMergeException.class);
     }
 
@@ -164,14 +170,18 @@ class NestedPipelineTest {
     @Test
     void completedChildWithContinueFailureSucceedsButParentReportsFailure() throws Exception {
         Pipeline child = new DefaultPipelineBuilder()
-                .stage("tolerated", context -> {
-                    throw new IllegalStateException("tolerated");
-                }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
-                .stage("writes", context -> ContextPatch.builder().put(VALUE, "written").build())
+                .stage(
+                        "tolerated",
+                        context -> {
+                            throw new IllegalStateException("tolerated");
+                        },
+                        StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage(
+                        "writes",
+                        context -> ContextPatch.builder().put(VALUE, "written").build())
                 .build();
-        Pipeline parent = new DefaultPipelineBuilder()
-                .stage("nested", child.asStage())
-                .build();
+        Pipeline parent =
+                new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
 
         PipelineResult result = parent.run(ContextView.empty());
 
@@ -185,14 +195,15 @@ class NestedPipelineTest {
     @Test
     void failedChildFailsNestedStageWithChildren() throws Exception {
         Pipeline child = new DefaultPipelineBuilder()
-                .stage("ok", context -> ContextPatch.builder().put(VALUE, "ignored").build())
+                .stage(
+                        "ok",
+                        context -> ContextPatch.builder().put(VALUE, "ignored").build())
                 .stage("fails", context -> {
                     throw new IllegalStateException("child failed");
                 })
                 .build();
-        Pipeline parent = new DefaultPipelineBuilder()
-                .stage("nested", child.asStage())
-                .build();
+        Pipeline parent =
+                new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
 
         PipelineResult result = parent.run(ContextView.empty());
 
@@ -200,15 +211,16 @@ class NestedPipelineTest {
         StageResult nested = result.stages().getFirst();
         assertThat(nested.status()).isEqualTo(StageStatus.FAILED);
         assertThat(nested.failure().orElseThrow()).isInstanceOf(PipelineExecutionException.class);
-        assertThat(nested.children()).extracting("status")
-                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
+        assertThat(nested.children()).extracting("status").containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
         assertThat(result.context().contains(VALUE)).isFalse();
     }
 
     @Test
     void foreignPipelineImplementationUsesStandaloneFallback() throws Exception {
         Pipeline inner = new DefaultPipelineBuilder()
-                .stage("rewrite", context -> ContextPatch.builder().put(VALUE, "same").build())
+                .stage(
+                        "rewrite",
+                        context -> ContextPatch.builder().put(VALUE, "same").build())
                 .build();
         AtomicBoolean delegated = new AtomicBoolean();
         Pipeline foreign = new Pipeline() {
@@ -223,11 +235,11 @@ class NestedPipelineTest {
                 throw new UnsupportedOperationException();
             }
         };
-        Pipeline parent = new DefaultPipelineBuilder()
-                .stage("nested", foreign.asStage())
-                .build();
+        Pipeline parent =
+                new DefaultPipelineBuilder().stage("nested", foreign.asStage()).build();
 
-        PipelineResult result = parent.run(ContextView.builder().put(VALUE, "same").build());
+        PipelineResult result =
+                parent.run(ContextView.builder().put(VALUE, "same").build());
 
         assertThat(delegated).isTrue();
         assertThat(result.isSuccessful()).isTrue();

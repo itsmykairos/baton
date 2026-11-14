@@ -51,7 +51,8 @@ public record StagePath(List<String> segments) {
      */
     public StagePath child(String childId) {
         Objects.requireNonNull(childId, "childId");
-        return new StagePath(java.util.stream.Stream.concat(segments.stream(), java.util.stream.Stream.of(childId)).toList());
+        return new StagePath(java.util.stream.Stream.concat(segments.stream(), java.util.stream.Stream.of(childId))
+                .toList());
     }
 
     /** {@return the segments joined with {@code /}} */

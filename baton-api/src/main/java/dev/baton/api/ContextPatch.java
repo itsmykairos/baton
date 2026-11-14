@@ -13,15 +13,12 @@ import java.util.Set;
  */
 public final class ContextPatch {
 
-    private static final ContextPatch EMPTY =
-            new ContextPatch(Map.of());
+    private static final ContextPatch EMPTY = new ContextPatch(Map.of());
 
     private final Map<ContextKey<?>, Object> writes;
 
     private ContextPatch(Map<ContextKey<?>, Object> writes) {
-        this.writes = Collections.unmodifiableMap(
-                new LinkedHashMap<>(writes)
-        );
+        this.writes = Collections.unmodifiableMap(new LinkedHashMap<>(writes));
     }
 
     /** {@return a patch with no writes} */
@@ -54,9 +51,7 @@ public final class ContextPatch {
     public <T> Optional<T> find(ContextKey<T> key) {
         Objects.requireNonNull(key, "key");
 
-        return writes.containsKey(key)
-                ? Optional.of(key.cast(writes.get(key)))
-                : Optional.empty();
+        return writes.containsKey(key) ? Optional.of(key.cast(writes.get(key))) : Optional.empty();
     }
 
     /**
@@ -129,13 +124,10 @@ public final class ContextPatch {
      * @return one patch holding every write
      * @throws ContextMergeException if two patches write the same key name
      */
-    public static ContextPatch merge(
-            Collection<ContextPatch> patches
-    ) {
+    public static ContextPatch merge(Collection<ContextPatch> patches) {
         Objects.requireNonNull(patches, "patches");
 
-        Map<ContextKey<?>, Object> merged =
-                new LinkedHashMap<>();
+        Map<ContextKey<?>, Object> merged = new LinkedHashMap<>();
         Set<String> names = new java.util.HashSet<>();
 
         for (ContextPatch patch : patches) {
@@ -143,19 +135,15 @@ public final class ContextPatch {
 
             for (var entry : patch.writes.entrySet()) {
                 if (!names.add(entry.getKey().name())) {
-                    throw new ContextMergeException(
-                            "Multiple stages wrote context key: "
-                                    + entry.getKey().name()
-                    );
+                    throw new ContextMergeException("Multiple stages wrote context key: "
+                            + entry.getKey().name());
                 }
 
                 merged.put(entry.getKey(), entry.getValue());
             }
         }
 
-        return merged.isEmpty()
-                ? EMPTY
-                : new ContextPatch(merged);
+        return merged.isEmpty() ? EMPTY : new ContextPatch(merged);
     }
 
     /**
@@ -167,10 +155,7 @@ public final class ContextPatch {
      * @param after the later context
      * @return the keys of {@code after} that are new or have a different value
      */
-    public static ContextPatch diff(
-            ContextView before,
-            ContextView after
-    ) {
+    public static ContextPatch diff(ContextView before, ContextView after) {
         Objects.requireNonNull(before, "before");
         Objects.requireNonNull(after, "after");
 
@@ -179,8 +164,7 @@ public final class ContextPatch {
         for (ContextKey<?> key : after.keys()) {
             Object newValue = valueOf(after, key);
 
-            if (!before.contains(key)
-                    || !Objects.equals(valueOf(before, key), newValue)) {
+            if (!before.contains(key) || !Objects.equals(valueOf(before, key), newValue)) {
                 putUntyped(builder, key, newValue);
             }
         }
@@ -188,11 +172,8 @@ public final class ContextPatch {
         return builder.build();
     }
 
-    private static Map<ContextKey<?>, Object> copyValues(
-            ContextView view
-    ) {
-        Map<ContextKey<?>, Object> copy =
-                new LinkedHashMap<>();
+    private static Map<ContextKey<?>, Object> copyValues(ContextView view) {
+        Map<ContextKey<?>, Object> copy = new LinkedHashMap<>();
 
         for (ContextKey<?> key : view.keys()) {
             copy.put(key, valueOf(view, key));
@@ -201,36 +182,25 @@ public final class ContextPatch {
         return copy;
     }
 
-    private static Object valueOf(
-            ContextView view,
-            ContextKey<?> key
-    ) {
+    private static Object valueOf(ContextView view, ContextKey<?> key) {
         return view.find(castKey(key)).orElse(null);
     }
 
     @SuppressWarnings("unchecked")
-    private static ContextKey<Object> castKey(
-            ContextKey<?> key
-    ) {
+    private static ContextKey<Object> castKey(ContextKey<?> key) {
         return (ContextKey<Object>) key;
     }
 
-    private static void putUntyped(
-            Builder builder,
-            ContextKey<?> key,
-            Object value
-    ) {
+    private static void putUntyped(Builder builder, ContextKey<?> key, Object value) {
         builder.put(castKey(key), value);
     }
 
     /** Builds a {@link ContextPatch}. */
     public static final class Builder {
 
-        private final Map<ContextKey<?>, Object> writes =
-                new LinkedHashMap<>();
+        private final Map<ContextKey<?>, Object> writes = new LinkedHashMap<>();
 
-        private Builder() {
-        }
+        private Builder() {}
 
         /**
          * Adds a write.
@@ -242,23 +212,16 @@ public final class ContextPatch {
          * @throws IllegalArgumentException if the value has the wrong type, the key
          *         is already written, or its name is already written with another type
          */
-        public <T> Builder put(
-                ContextKey<T> key,
-                T value
-        ) {
+        public <T> Builder put(ContextKey<T> key, T value) {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(value, "value");
 
             if (!key.type().isInstance(value)) {
-                throw new IllegalArgumentException(
-                        "Invalid value type for key: " + key.name()
-                );
+                throw new IllegalArgumentException("Invalid value type for key: " + key.name());
             }
 
             if (writes.containsKey(key)) {
-                throw new IllegalArgumentException(
-                        "Key written twice in one patch: " + key.name()
-                );
+                throw new IllegalArgumentException("Key written twice in one patch: " + key.name());
             }
             for (ContextKey<?> existing : writes.keySet()) {
                 if (existing.clashesWith(key)) {
@@ -272,9 +235,7 @@ public final class ContextPatch {
 
         /** {@return the immutable patch} */
         public ContextPatch build() {
-            return writes.isEmpty()
-                    ? EMPTY
-                    : new ContextPatch(writes);
+            return writes.isEmpty() ? EMPTY : new ContextPatch(writes);
         }
     }
 }

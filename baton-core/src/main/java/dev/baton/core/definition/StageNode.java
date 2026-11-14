@@ -3,7 +3,6 @@ package dev.baton.core.definition;
 import dev.baton.api.ContextKey;
 import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
-
 import java.util.Objects;
 import java.util.Set;
 
@@ -11,12 +10,7 @@ import java.util.Set;
  * One stage in a pipeline definition. {@link Stage#requiredReads()} is captured
  * and validated once, when the pipeline is built.
  */
-public record StageNode(
-        String id,
-        Stage stage,
-        StageOptions options,
-        Set<ContextKey<?>> requiredReads
-) {
+public record StageNode(String id, Stage stage, StageOptions options, Set<ContextKey<?>> requiredReads) {
     public StageNode {
         requireId(id, "stage id");
         Objects.requireNonNull(stage, "stage");
@@ -42,9 +36,7 @@ public record StageNode(
         Objects.requireNonNull(id, name);
 
         if (id.isBlank()) {
-            throw new IllegalArgumentException(
-                    name + " must not be blank"
-            );
+            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

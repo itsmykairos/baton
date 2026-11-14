@@ -5,9 +5,8 @@ import dev.baton.api.event.PipelineListener;
 import dev.baton.api.propagation.ContextPropagator;
 import dev.baton.api.propagation.ExecutionScope;
 import dev.baton.api.propagation.Restoration;
-import org.springframework.beans.factory.ObjectProvider;
-
 import java.util.function.Function;
+import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * Integrations that need a bean from another auto-configuration (a MeterRegistry, an
@@ -16,8 +15,7 @@ import java.util.function.Function;
  */
 final class LazyIntegrations {
 
-    private LazyIntegrations() {
-    }
+    private LazyIntegrations() {}
 
     /** A listener created from a bean on first event; ignores events if the bean is absent. */
     static <B> PipelineListener listener(ObjectProvider<B> provider, Function<B, PipelineListener> factory) {
@@ -45,8 +43,8 @@ final class LazyIntegrations {
 
     /** A propagator created from a bean on first use; does nothing if the bean is absent. */
     @SuppressWarnings("unchecked")
-    static <B> ContextPropagator<Object> propagator(ObjectProvider<B> provider,
-                                                   Function<B, ContextPropagator<?>> factory) {
+    static <B> ContextPropagator<Object> propagator(
+            ObjectProvider<B> provider, Function<B, ContextPropagator<?>> factory) {
         return new ContextPropagator<>() {
             private volatile Object delegate;
 

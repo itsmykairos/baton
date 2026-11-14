@@ -2,7 +2,6 @@ package dev.baton.core.event;
 
 import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.RunFinished;
-
 import java.util.function.LongFunction;
 
 /**
@@ -20,12 +19,10 @@ public interface EventSink {
         }
 
         @Override
-        public void emit(PipelineEvent event) {
-        }
+        public void emit(PipelineEvent event) {}
 
         @Override
-        public void finish(LongFunction<RunFinished> lastEvent) {
-        }
+        public void finish(LongFunction<RunFinished> lastEvent) {}
     };
 
     /** {@return whether events are wanted; if false, do not build them} */

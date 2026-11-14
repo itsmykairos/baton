@@ -42,8 +42,7 @@ import org.springframework.core.annotation.Order;
 public class BatonAutoConfiguration {
 
     /** Creates the auto-configuration. */
-    public BatonAutoConfiguration() {
-    }
+    public BatonAutoConfiguration() {}
 
     /**
      * The application's Baton settings.
@@ -60,8 +59,7 @@ public class BatonAutoConfiguration {
             BatonProperties properties,
             ObjectProvider<ContextPropagator<?>> propagators,
             ObjectProvider<BatonConfigCustomizer> customizers,
-            ListableBeanFactory beans
-    ) {
+            ListableBeanFactory beans) {
         BatonConfig.Builder config = BatonConfig.builder();
         apply(properties, config, beans);
         propagators.orderedStream().forEach(config::contextPropagator);
@@ -158,38 +156,38 @@ public class BatonAutoConfiguration {
         }
         if (properties.defaultStage() != null) {
             var defaults = properties.defaultStage();
-            if (defaults.stage() != null || defaults.pipeline() != null || defaults.parallel() != null
-                    || defaults.stages() != null || defaults.id() != null) {
+            if (defaults.stage() != null
+                    || defaults.pipeline() != null
+                    || defaults.parallel() != null
+                    || defaults.stages() != null
+                    || defaults.id() != null) {
                 throw new IllegalStateException("baton.default-stage takes stage options only "
                         + "(timeout, failure-policy, retry, fallback, condition, skip-if-inputs-missing, "
                         + "overwrite-policy), not stage, pipeline, parallel, stages or id");
             }
-            config.defaultStageOptions(StageSpecs.apply(dev.baton.api.StageOptions.defaults(),
-                    properties.defaultStage(), beans, "baton.default-stage"));
+            config.defaultStageOptions(StageSpecs.apply(
+                    dev.baton.api.StageOptions.defaults(), properties.defaultStage(), beans, "baton.default-stage"));
         }
     }
 
     /** Micrometer metrics, when {@code baton-micrometer} is on the classpath. */
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = {
-            "dev.baton.micrometer.MicrometerPipelineListener",
-            "io.micrometer.core.instrument.MeterRegistry"})
+    @ConditionalOnClass(
+            name = {"dev.baton.micrometer.MicrometerPipelineListener", "io.micrometer.core.instrument.MeterRegistry"})
     @ConditionalOnProperty(name = "baton.integrations.metrics", havingValue = "true", matchIfMissing = true)
     static class MicrometerIntegration {
 
         @Bean
         @Order(Ordered.HIGHEST_PRECEDENCE + 10)
-        PipelineListener batonMetricsListener(
-                ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
+        PipelineListener batonMetricsListener(ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
             return LazyIntegrations.listener(registry, dev.baton.micrometer.MicrometerPipelineListener::new);
         }
     }
 
     /** OpenTelemetry tracing, when {@code baton-opentelemetry} is on the classpath. */
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(name = {
-            "dev.baton.opentelemetry.OpenTelemetryContextPropagator",
-            "io.opentelemetry.api.OpenTelemetry"})
+    @ConditionalOnClass(
+            name = {"dev.baton.opentelemetry.OpenTelemetryContextPropagator", "io.opentelemetry.api.OpenTelemetry"})
     static class OpenTelemetryIntegration {
 
         @Bean
@@ -197,16 +195,15 @@ public class BatonAutoConfiguration {
         @ConditionalOnProperty(name = "baton.integrations.tracing", havingValue = "propagator", matchIfMissing = true)
         ContextPropagator<Object> batonTracingPropagator(
                 ObjectProvider<io.opentelemetry.api.OpenTelemetry> openTelemetry) {
-            return LazyIntegrations.propagator(openTelemetry,
-                    dev.baton.opentelemetry.OpenTelemetryContextPropagator::new);
+            return LazyIntegrations.propagator(
+                    openTelemetry, dev.baton.opentelemetry.OpenTelemetryContextPropagator::new);
         }
 
         @Bean
         @Order(Ordered.HIGHEST_PRECEDENCE + 10)
         @ConditionalOnProperty(name = "baton.integrations.tracing", havingValue = "listener")
         PipelineListener batonTracingListener(ObjectProvider<io.opentelemetry.api.OpenTelemetry> openTelemetry) {
-            return LazyIntegrations.listener(openTelemetry,
-                    dev.baton.opentelemetry.OpenTelemetryPipelineListener::new);
+            return LazyIntegrations.listener(openTelemetry, dev.baton.opentelemetry.OpenTelemetryPipelineListener::new);
         }
     }
 }

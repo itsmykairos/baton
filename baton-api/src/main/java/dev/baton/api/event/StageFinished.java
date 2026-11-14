@@ -2,7 +2,6 @@ package dev.baton.api.event;
 
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -31,6 +30,5 @@ public record StageFinished(
         Optional<Throwable> failure,
         int attempts,
         WorkerTermination workerTermination,
-        Instant timestamp
-) implements PipelineEvent {
-}
+        Instant timestamp)
+        implements PipelineEvent {}

@@ -1,12 +1,11 @@
 package dev.baton.api;
 
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
 
 class LayeredContextTest {
 
@@ -32,7 +31,9 @@ class LayeredContextTest {
         int layers = 5_000;
         ContextView context = ContextView.empty();
         for (int i = 0; i < layers; i++) {
-            context = ContextPatch.builder().put(ContextKey.of("k" + i, Integer.class), i).build()
+            context = ContextPatch.builder()
+                    .put(ContextKey.of("k" + i, Integer.class), i)
+                    .build()
                     .applyTo(context);
         }
 
@@ -42,8 +43,14 @@ class LayeredContextTest {
         assertThat(context.get(ContextKey.of("k4999", Integer.class))).isEqualTo(4999);
         assertThat(context.keyNamed("k2500")).isPresent();
         // Flattening a deep chain (here via a type replacement) is also iterative.
-        ContextView replaced = ContextPatch.builder().put(ContextKey.of("k10", String.class), "ten").build()
-                .applyTo(context, BatonConfig.builder().typeClashPolicy(TypeClashPolicy.REPLACE).build());
+        ContextView replaced = ContextPatch.builder()
+                .put(ContextKey.of("k10", String.class), "ten")
+                .build()
+                .applyTo(
+                        context,
+                        BatonConfig.builder()
+                                .typeClashPolicy(TypeClashPolicy.REPLACE)
+                                .build());
         assertThat(replaced.get(ContextKey.of("k10", String.class))).isEqualTo("ten");
         assertThat(replaced.contains(ContextKey.of("k10", Integer.class))).isFalse();
         assertThat(replaced.keys()).hasSize(layers);
@@ -52,7 +59,8 @@ class LayeredContextTest {
     @Test
     void everyFlattenDepthGivesTheSameContext() {
         for (int depth : new int[] {0, 1, 3, 16}) {
-            BatonConfig config = BatonConfig.builder().contextFlattenDepth(depth).build();
+            BatonConfig config =
+                    BatonConfig.builder().contextFlattenDepth(depth).build();
             ContextView context = ContextView.empty();
             for (int i = 0; i < 40; i++) {
                 ContextPatch.Builder patch = ContextPatch.builder().put(ContextKey.of("k" + i, Integer.class), i);
@@ -62,7 +70,9 @@ class LayeredContextTest {
                 context = patch.build().applyTo(context, config);
             }
             assertThat(context.keys()).as("depth %d", depth).hasSize(41);
-            assertThat(context.get(ContextKey.of("shared", Integer.class))).as("depth %d", depth).isEqualTo(35);
+            assertThat(context.get(ContextKey.of("shared", Integer.class)))
+                    .as("depth %d", depth)
+                    .isEqualTo(35);
             assertThat(context.get(ContextKey.of("k39", Integer.class))).isEqualTo(39);
         }
     }
@@ -71,7 +81,8 @@ class LayeredContextTest {
     void laterLevelsOverrideEarlierValuesWithoutDuplicatingKeys() {
         ContextKey<String> status = ContextKey.of("status", String.class);
         ContextKey<String> other = ContextKey.of("other", String.class);
-        ContextView context = ContextView.builder().put(status, "new").put(other, "x").build();
+        ContextView context =
+                ContextView.builder().put(status, "new").put(other, "x").build();
         for (int i = 0; i < 16 + 3; i++) {
             context = ContextPatch.builder().put(status, "v" + i).build().applyTo(context);
         }
@@ -95,15 +106,19 @@ class LayeredContextTest {
         ContextKey<String> idAsString = ContextKey.of("id", String.class);
         ContextView context = ContextView.builder().put(idAsString, "7").build();
         for (int i = 0; i < 5; i++) {
-            context = ContextPatch.builder().put(ContextKey.of("n" + i, Integer.class), i).build()
+            context = ContextPatch.builder()
+                    .put(ContextKey.of("n" + i, Integer.class), i)
+                    .build()
                     .applyTo(context);
         }
         ContextView deep = context;
 
         assertThat(deep.keyNamed("id")).contains(idAsString);
         assertThat(deep.keyNamed("missing")).isEmpty();
-        assertThatThrownBy(() -> ContextPatch.builder().put(ContextKey.of("id", Integer.class), 7).build()
-                .applyTo(deep))
+        assertThatThrownBy(() -> ContextPatch.builder()
+                        .put(ContextKey.of("id", Integer.class), 7)
+                        .build()
+                        .applyTo(deep))
                 .isInstanceOf(ContextMergeException.class)
                 .hasMessageContaining("'id'");
     }
@@ -140,7 +155,10 @@ class LayeredContextTest {
         assertThat(result.get(key)).isEqualTo("v");
         assertThat(result.get(added)).isEqualTo(1);
         assertThat(custom.keyNamed("k")).contains(key);
-        assertThatThrownBy(() -> ContextPatch.builder().put(ContextKey.of("k", Integer.class), 1).build()
-                .applyTo(custom)).isInstanceOf(ContextMergeException.class);
+        assertThatThrownBy(() -> ContextPatch.builder()
+                        .put(ContextKey.of("k", Integer.class), 1)
+                        .build()
+                        .applyTo(custom))
+                .isInstanceOf(ContextMergeException.class);
     }
 }

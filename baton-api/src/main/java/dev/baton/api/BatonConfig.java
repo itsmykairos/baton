@@ -1,7 +1,6 @@
 package dev.baton.api;
 
 import dev.baton.api.propagation.ContextPropagator;
-
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -204,7 +203,9 @@ public final class BatonConfig {
      * virtual threads. Each run creates its own thread-per-task executor from it}
      */
     public ThreadFactory threadFactory() {
-        return threadFactory != null ? threadFactory : Thread.ofVirtual().name("baton-stage").factory();
+        return threadFactory != null
+                ? threadFactory
+                : Thread.ofVirtual().name("baton-stage").factory();
     }
 
     /**
@@ -316,8 +317,7 @@ public final class BatonConfig {
         private String defaultPipelineName;
         private final List<ContextPropagator<?>> contextPropagators = new ArrayList<>();
 
-        private Builder() {
-        }
+        private Builder() {}
 
         private Builder(BatonConfig config) {
             contextFlattenDepth = config.contextFlattenDepth;

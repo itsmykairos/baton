@@ -35,10 +35,7 @@ public final class ContextKey<T> {
      * @param <T> the value type
      * @return the key
      */
-    public static <T> ContextKey<T> of(
-            String name,
-            Class<T> type
-    ) {
+    public static <T> ContextKey<T> of(String name, Class<T> type) {
         return new ContextKey<>(name, type);
     }
 
@@ -67,9 +64,7 @@ public final class ContextKey<T> {
     /** Keys are equal when their names and types are equal. */
     @Override
     public boolean equals(Object other) {
-        return other instanceof ContextKey<?> key
-                && name.equals(key.name)
-                && type.equals(key.type);
+        return other instanceof ContextKey<?> key && name.equals(key.name) && type.equals(key.type);
     }
 
     @Override

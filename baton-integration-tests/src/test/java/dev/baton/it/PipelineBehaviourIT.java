@@ -1,5 +1,7 @@
 package dev.baton.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -14,14 +16,11 @@ import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
 import dev.baton.api.StageStatus;
 import dev.baton.testkit.PipelineResults;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 /** End-to-end behaviour through the public API only. */
 class PipelineBehaviourIT {
@@ -34,21 +33,29 @@ class PipelineBehaviourIT {
     @Test
     void sequentialParallelAndNestedStagesComposeThroughTheContext() throws Exception {
         Pipeline payment = Pipeline.builder()
-                .stage("charge", context -> ContextPatch.builder()
-                        .put(RECEIPT, "paid " + context.context().get(TOTAL))
-                        .build())
+                .stage(
+                        "charge",
+                        context -> ContextPatch.builder()
+                                .put(RECEIPT, "paid " + context.context().get(TOTAL))
+                                .build())
                 .build();
 
         Pipeline checkout = Pipeline.builder()
-                .stage("load", context -> ContextPatch.builder().put(ORDER_ID, 7).build())
+                .stage(
+                        "load",
+                        context -> ContextPatch.builder().put(ORDER_ID, 7).build())
                 .parallel("enrich", parallel -> {
-                    parallel.stage("customer", context -> ContextPatch.builder()
-                            .put(CUSTOMER, "ada").build());
+                    parallel.stage(
+                            "customer",
+                            context ->
+                                    ContextPatch.builder().put(CUSTOMER, "ada").build());
                     parallel.stage("price", context -> {
                         // Children are forked and joined inside the stage.
                         var base = context.tasks().fork(() -> 40);
                         var tax = context.tasks().fork(() -> 2);
-                        return ContextPatch.builder().put(TOTAL, base.join() + tax.join()).build();
+                        return ContextPatch.builder()
+                                .put(TOTAL, base.join() + tax.join())
+                                .build();
                     });
                 })
                 .stage("payment", payment.asStage())
@@ -58,10 +65,8 @@ class PipelineBehaviourIT {
 
         PipelineResults.requireSuccess(result);
         assertThat(result.context().get(RECEIPT)).isEqualTo("paid 42");
-        assertThat(result.stages()).extracting("stageId")
-                .containsExactly("load", "customer", "price", "payment");
-        assertThat(PipelineResults.stage(result, "payment/charge").status())
-                .isEqualTo(StageStatus.SUCCEEDED);
+        assertThat(result.stages()).extracting("stageId").containsExactly("load", "customer", "price", "payment");
+        assertThat(PipelineResults.stage(result, "payment/charge").status()).isEqualTo(StageStatus.SUCCEEDED);
     }
 
     @Test
@@ -79,15 +84,16 @@ class PipelineBehaviourIT {
         };
         Pipeline pipeline = Pipeline.builder()
                 .stage("greet", needsCustomer)
-                .stage("after", context -> ContextPatch.builder().put(ORDER_ID, 1).build())
+                .stage(
+                        "after",
+                        context -> ContextPatch.builder().put(ORDER_ID, 1).build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
         assertThat(result.isSuccessful()).isFalse();
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.BLOCKED, StageStatus.SUCCEEDED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.BLOCKED, StageStatus.SUCCEEDED);
     }
 
     @Test
@@ -111,18 +117,20 @@ class PipelineBehaviourIT {
         assertThat(stopped.stages()).extracting("stageId").containsExactly("fails");
         assertThat(stopped.failure().orElseThrow()).hasMessage("boom");
         assertThat(continued.status()).isEqualTo(PipelineStatus.COMPLETED);
-        assertThat(continued.stages()).extracting("status")
-                .containsExactly(StageStatus.FAILED, StageStatus.SUCCEEDED);
+        assertThat(continued.stages()).extracting("status").containsExactly(StageStatus.FAILED, StageStatus.SUCCEEDED);
         assertThat(continued.hasFailures()).isTrue();
     }
 
     @Test
     void stageTimeoutEndsTheRunPromptly() throws Exception {
         Pipeline pipeline = Pipeline.builder()
-                .stage("slow", context -> {
-                    Thread.sleep(5_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
+                .stage(
+                        "slow",
+                        context -> {
+                            Thread.sleep(5_000);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
                 .build();
 
         long start = System.nanoTime();
@@ -182,12 +190,18 @@ class PipelineBehaviourIT {
     @Test
     void recreatedKeysReadValuesWrittenByOtherStages() throws Exception {
         Pipeline pipeline = Pipeline.builder()
-                .stage("write", context -> ContextPatch.builder()
-                        .put(ContextKey.of("greeting", String.class), "hi").build())
-                .stage("read", context -> ContextPatch.builder()
-                        .put(ContextKey.of("echo", String.class),
-                                context.context().get(ContextKey.of("greeting", String.class)))
-                        .build())
+                .stage(
+                        "write",
+                        context -> ContextPatch.builder()
+                                .put(ContextKey.of("greeting", String.class), "hi")
+                                .build())
+                .stage(
+                        "read",
+                        context -> ContextPatch.builder()
+                                .put(
+                                        ContextKey.of("echo", String.class),
+                                        context.context().get(ContextKey.of("greeting", String.class)))
+                                .build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -198,17 +212,22 @@ class PipelineBehaviourIT {
     @Test
     void stageWritingAnExistingNameWithAnotherTypeFails() throws Exception {
         Pipeline pipeline = Pipeline.builder()
-                .stage("asString", context -> ContextPatch.builder()
-                        .put(ContextKey.of("id", String.class), "7").build())
-                .stage("asInteger", context -> ContextPatch.builder()
-                        .put(ContextKey.of("id", Integer.class), 7).build())
+                .stage(
+                        "asString",
+                        context -> ContextPatch.builder()
+                                .put(ContextKey.of("id", String.class), "7")
+                                .build())
+                .stage(
+                        "asInteger",
+                        context -> ContextPatch.builder()
+                                .put(ContextKey.of("id", Integer.class), 7)
+                                .build())
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
         assertThat(result.context().get(ContextKey.of("id", String.class))).isEqualTo("7");
     }
 }

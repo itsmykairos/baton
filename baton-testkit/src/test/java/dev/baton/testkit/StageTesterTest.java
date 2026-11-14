@@ -1,18 +1,17 @@
 package dev.baton.testkit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.Stage;
 import dev.baton.api.StageContext;
-import org.junit.jupiter.api.Test;
-
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
 
 class StageTesterTest {
 
@@ -34,7 +33,8 @@ class StageTesterTest {
 
     @Test
     void runsStageWithForkedChildren() throws Exception {
-        ContextView result = StageTester.runAndApply(DOUBLER, ContextView.builder().put(IN, 21).build());
+        ContextView result = StageTester.runAndApply(
+                DOUBLER, ContextView.builder().put(IN, 21).build());
 
         assertThat(result.get(OUT)).isEqualTo(42);
     }

@@ -1,7 +1,6 @@
 package dev.baton.api.propagation;
 
 import dev.baton.api.event.StagePath;
-
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;

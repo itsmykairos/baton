@@ -77,11 +77,8 @@ public interface ContextView {
      * @throws NoSuchElementException if the key is absent
      */
     default <T> T require(ContextKey<T> key) {
-        return find(key).orElseThrow(() ->
-                new NoSuchElementException(
-                        "Required context value is missing: " + key.name()
-                )
-        );
+        return find(key)
+                .orElseThrow(() -> new NoSuchElementException("Required context value is missing: " + key.name()));
     }
 
     /** Builds a {@link ContextView}. */

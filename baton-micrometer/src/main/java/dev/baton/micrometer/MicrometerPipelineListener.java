@@ -12,7 +12,6 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -68,27 +67,30 @@ public final class MicrometerPipelineListener implements PipelineListener {
     public void onEvent(PipelineEvent event) {
         switch (event) {
             case RunStarted started -> active(started.pipelineName()).incrementAndGet();
-            case StageStarted ignored -> { }
-            case ContextConflict conflict -> Counter.builder(CONTEXT_CONFLICTS)
-                    .description("Context write conflicts and how they were resolved")
-                    .tag("pipeline", conflict.pipelineName())
-                    .tag("kind", conflict.conflict().kind().name())
-                    .tag("resolution", conflict.conflict().resolution().name())
-                    .register(registry)
-                    .increment();
-            case StageRetrying retrying -> Counter.builder(STAGE_RETRIES)
-                    .description("Stage attempts that failed and were retried")
-                    .tag("pipeline", retrying.pipelineName())
-                    .tag("stage", retrying.path().toString())
-                    .register(registry)
-                    .increment();
-            case StageFinished finished -> Timer.builder(STAGE_DURATION)
-                    .description("Time from a stage's start to its logical outcome")
-                    .tag("pipeline", finished.pipelineName())
-                    .tag("stage", finished.path().toString())
-                    .tag("status", finished.status().name())
-                    .register(registry)
-                    .record(finished.duration());
+            case StageStarted ignored -> {}
+            case ContextConflict conflict ->
+                Counter.builder(CONTEXT_CONFLICTS)
+                        .description("Context write conflicts and how they were resolved")
+                        .tag("pipeline", conflict.pipelineName())
+                        .tag("kind", conflict.conflict().kind().name())
+                        .tag("resolution", conflict.conflict().resolution().name())
+                        .register(registry)
+                        .increment();
+            case StageRetrying retrying ->
+                Counter.builder(STAGE_RETRIES)
+                        .description("Stage attempts that failed and were retried")
+                        .tag("pipeline", retrying.pipelineName())
+                        .tag("stage", retrying.path().toString())
+                        .register(registry)
+                        .increment();
+            case StageFinished finished ->
+                Timer.builder(STAGE_DURATION)
+                        .description("Time from a stage's start to its logical outcome")
+                        .tag("pipeline", finished.pipelineName())
+                        .tag("stage", finished.path().toString())
+                        .tag("status", finished.status().name())
+                        .register(registry)
+                        .record(finished.duration());
             case RunFinished finished -> {
                 active(finished.pipelineName()).decrementAndGet();
                 Timer.builder(RUN_DURATION)

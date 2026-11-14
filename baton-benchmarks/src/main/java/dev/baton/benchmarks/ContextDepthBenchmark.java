@@ -6,6 +6,9 @@ import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
 import dev.baton.api.PipelineResult;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -17,10 +20,6 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * How {@link BatonConfig#contextFlattenDepth()} trades write cost against read cost
@@ -58,7 +57,8 @@ public class ContextDepthBenchmark {
             ContextKey<Integer> key = keys.get(i);
             int value = i;
             List<ContextKey<Integer>> earlier = keys.subList(0, i);
-            writeOnly.stage("w" + i, context -> ContextPatch.builder().put(key, value).build());
+            writeOnly.stage(
+                    "w" + i, context -> ContextPatch.builder().put(key, value).build());
             readHeavy.stage("w" + i, context -> {
                 int sum = 0;
                 for (ContextKey<Integer> read : earlier) {

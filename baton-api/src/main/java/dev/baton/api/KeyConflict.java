@@ -1,7 +1,6 @@
 package dev.baton.api;
 
 import dev.baton.api.event.StagePath;
-
 import java.util.List;
 import java.util.Objects;
 

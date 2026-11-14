@@ -2,7 +2,6 @@ package dev.baton.api.description;
 
 import dev.baton.api.ContextKey;
 import dev.baton.api.StageOptions;
-
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -22,8 +21,7 @@ public record StageDescription(
         String stageType,
         StageOptions options,
         Set<ContextKey<?>> requiredReads,
-        Optional<PipelineDescription> nested
-) {
+        Optional<PipelineDescription> nested) {
 
     /**
      * Validates and copies the record's fields.

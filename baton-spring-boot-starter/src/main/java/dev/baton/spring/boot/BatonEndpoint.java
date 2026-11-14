@@ -7,14 +7,13 @@ import dev.baton.api.description.LayerDescription;
 import dev.baton.api.description.PipelineDescription;
 import dev.baton.api.description.StageDescription;
 import dev.baton.visualize.MermaidDiagram;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.annotation.Selector;
-
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * The {@code baton} Actuator endpoint: what pipelines this application has.
@@ -53,10 +52,15 @@ public class BatonEndpoint {
         Map<String, PipelineSummary> pipelines = new TreeMap<>();
         beans.getBeansOfType(Pipeline.class).forEach((bean, pipeline) -> {
             PipelineDescription description = describe(pipeline);
-            pipelines.put(bean, description == null
-                    ? new PipelineSummary(null, 0, 0, false)
-                    : new PipelineSummary(description.name(), description.layers().size(),
-                    description.stages().size(), true));
+            pipelines.put(
+                    bean,
+                    description == null
+                            ? new PipelineSummary(null, 0, 0, false)
+                            : new PipelineSummary(
+                                    description.name(),
+                                    description.layers().size(),
+                                    description.stages().size(),
+                                    true));
         });
         return new PipelinesReport(pipelines);
     }
@@ -77,8 +81,12 @@ public class BatonEndpoint {
         if (description == null) {
             return null;
         }
-        return new PipelineReport(bean, description.name(), settings(description.config()),
-                layers(description), MermaidDiagram.of(description));
+        return new PipelineReport(
+                bean,
+                description.name(),
+                settings(description.config()),
+                layers(description),
+                MermaidDiagram.of(description));
     }
 
     private static PipelineDescription describe(Pipeline pipeline) {
@@ -91,7 +99,9 @@ public class BatonEndpoint {
 
     private static List<LayerReport> layers(PipelineDescription description) {
         return description.layers().stream()
-                .map(layer -> new LayerReport(layer.id(), layer.kind() == LayerDescription.Kind.PARALLEL,
+                .map(layer -> new LayerReport(
+                        layer.id(),
+                        layer.kind() == LayerDescription.Kind.PARALLEL,
                         layer.stages().stream().map(BatonEndpoint::stage).toList()))
                 .toList();
     }
@@ -109,7 +119,9 @@ public class BatonEndpoint {
                 options.skipsIfInputsMissing(),
                 options.overwritePolicy().map(Enum::name).orElse(null),
                 stage.requiredReads().stream().map(ContextKey::name).sorted().toList(),
-                stage.nested().map(nested -> new NestedReport(nested.name(), layers(nested))).orElse(null));
+                stage.nested()
+                        .map(nested -> new NestedReport(nested.name(), layers(nested)))
+                        .orElse(null));
     }
 
     private static SettingsReport settings(BatonConfig config) {
@@ -121,7 +133,9 @@ public class BatonEndpoint {
                 config.maxParallelStages(),
                 config.maxChildTasks(),
                 config.runTimeout().map(Object::toString).orElse(null),
-                config.contextPropagators().stream().map(propagator -> propagator.getClass().getName()).toList());
+                config.contextPropagators().stream()
+                        .map(propagator -> propagator.getClass().getName())
+                        .toList());
     }
 
     /**
@@ -129,8 +143,7 @@ public class BatonEndpoint {
      *
      * @param pipelines summaries by bean name
      */
-    public record PipelinesReport(Map<String, PipelineSummary> pipelines) {
-    }
+    public record PipelinesReport(Map<String, PipelineSummary> pipelines) {}
 
     /**
      * One pipeline in the list.
@@ -140,8 +153,7 @@ public class BatonEndpoint {
      * @param stages how many stages it has (not counting nested pipelines)
      * @param describable whether its structure can be shown
      */
-    public record PipelineSummary(String name, int layers, int stages, boolean describable) {
-    }
+    public record PipelineSummary(String name, int layers, int stages, boolean describable) {}
 
     /**
      * One pipeline in detail.
@@ -152,9 +164,8 @@ public class BatonEndpoint {
      * @param layers its layers, in order
      * @param mermaid a Mermaid flowchart of it
      */
-    public record PipelineReport(String bean, String name, SettingsReport settings, List<LayerReport> layers,
-                                 String mermaid) {
-    }
+    public record PipelineReport(
+            String bean, String name, SettingsReport settings, List<LayerReport> layers, String mermaid) {}
 
     /**
      * A pipeline's effective settings.
@@ -168,10 +179,15 @@ public class BatonEndpoint {
      * @param runTimeout the run timeout, if any
      * @param contextPropagators the context propagators' classes
      */
-    public record SettingsReport(int contextFlattenDepth, String layerConflictPolicy, String overwritePolicy,
-                                 String typeClashPolicy, int maxParallelStages, int maxChildTasks,
-                                 String runTimeout, List<String> contextPropagators) {
-    }
+    public record SettingsReport(
+            int contextFlattenDepth,
+            String layerConflictPolicy,
+            String overwritePolicy,
+            String typeClashPolicy,
+            int maxParallelStages,
+            int maxChildTasks,
+            String runTimeout,
+            List<String> contextPropagators) {}
 
     /**
      * One layer.
@@ -180,8 +196,7 @@ public class BatonEndpoint {
      * @param parallel whether its stages run in parallel
      * @param stages its stages
      */
-    public record LayerReport(String id, boolean parallel, List<StageReport> stages) {
-    }
+    public record LayerReport(String id, boolean parallel, List<StageReport> stages) {}
 
     /**
      * One stage.
@@ -198,10 +213,18 @@ public class BatonEndpoint {
      * @param needs its required context keys
      * @param nested the pipeline it runs, if it is a nested pipeline stage
      */
-    public record StageReport(String id, String type, String timeout, String failurePolicy, int maxAttempts,
-                              boolean fallback, boolean conditional, boolean optionalInputs,
-                              String overwritePolicy, List<String> needs, NestedReport nested) {
-    }
+    public record StageReport(
+            String id,
+            String type,
+            String timeout,
+            String failurePolicy,
+            int maxAttempts,
+            boolean fallback,
+            boolean conditional,
+            boolean optionalInputs,
+            String overwritePolicy,
+            List<String> needs,
+            NestedReport nested) {}
 
     /**
      * A nested pipeline.
@@ -209,6 +232,5 @@ public class BatonEndpoint {
      * @param name its name
      * @param layers its layers
      */
-    public record NestedReport(String name, List<LayerReport> layers) {
-    }
+    public record NestedReport(String name, List<LayerReport> layers) {}
 }

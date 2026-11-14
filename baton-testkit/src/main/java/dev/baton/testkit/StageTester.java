@@ -5,7 +5,6 @@ import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.Stage;
-
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -20,8 +19,7 @@ import java.util.stream.Collectors;
  */
 public final class StageTester {
 
-    private StageTester() {
-    }
+    private StageTester() {}
 
     /**
      * Runs {@code stage} against {@code input} and returns its patch.
@@ -42,8 +40,7 @@ public final class StageTester {
                 .map(ContextKey::name)
                 .collect(Collectors.joining(", "));
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(
-                    "Stage would be BLOCKED; missing required keys: " + missing);
+            throw new IllegalStateException("Stage would be BLOCKED; missing required keys: " + missing);
         }
         try (TestStageContext context = TestStageContext.of(input)) {
             ContextPatch patch = stage.execute(context);

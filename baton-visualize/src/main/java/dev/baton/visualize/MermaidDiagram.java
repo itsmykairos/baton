@@ -11,7 +11,6 @@ import dev.baton.api.StageStatus;
 import dev.baton.api.description.LayerDescription;
 import dev.baton.api.description.PipelineDescription;
 import dev.baton.api.description.StageDescription;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -142,8 +141,10 @@ public final class MermaidDiagram {
         if (result != null) {
             indexResults(result.stages(), "");
             for (KeyConflict conflict : result.conflicts()) {
-                conflict.stages().forEach(path ->
-                        conflictsByPath.computeIfAbsent(path.toString(), ignored -> new ArrayList<>()).add(conflict));
+                conflict.stages()
+                        .forEach(path -> conflictsByPath
+                                .computeIfAbsent(path.toString(), ignored -> new ArrayList<>())
+                                .add(conflict));
             }
         }
 
@@ -151,7 +152,8 @@ public final class MermaidDiagram {
         if (result != null) {
             title += " - " + result.status() + (result.isSuccessful() ? "" : " (not successful)");
         }
-        out.append("---\ntitle: \"").append(flatten(title).replace("\"", "'").replace("\\", "/"))
+        out.append("---\ntitle: \"")
+                .append(flatten(title).replace("\"", "'").replace("\\", "/"))
                 .append("\"\n---\n");
         out.append("flowchart ").append(leftToRight ? "LR" : "TB").append('\n');
         out.append("  start([\"start\"])\n");
@@ -163,7 +165,8 @@ public final class MermaidDiagram {
         connect(chain, "  ");
         if (result != null) {
             appendClassDefinitions();
-            classes.forEach((id, css) -> out.append("  class ").append(id).append(' ').append(css).append('\n'));
+            classes.forEach((id, css) ->
+                    out.append("  class ").append(id).append(' ').append(css).append('\n'));
         }
         out.append("  classDef terminal fill:#f8f9fa,stroke:#5f6368,color:#202124\n");
         out.append("  classDef join fill:#bdc1c6,stroke:#bdc1c6\n");
@@ -184,14 +187,20 @@ public final class MermaidDiagram {
         for (LayerDescription layer : pipeline.layers()) {
             if (layer.kind() == LayerDescription.Kind.PARALLEL) {
                 String id = "layer" + (++nextId);
-                out.append(indent).append("subgraph ").append(id).append(" [\"")
-                        .append(escape(layer.id())).append(" (parallel)\"]\n");
+                out.append(indent)
+                        .append("subgraph ")
+                        .append(id)
+                        .append(" [\"")
+                        .append(escape(layer.id()))
+                        .append(" (parallel)\"]\n");
                 List<String> stages = new ArrayList<>();
                 for (StageDescription stage : layer.stages()) {
                     stages.add(renderStage(stage, pathPrefix, indent + "  "));
                 }
                 out.append(indent).append("end\n");
-                out.append(indent).append("style ").append(id)
+                out.append(indent)
+                        .append("style ")
+                        .append(id)
                         .append(" fill:#fafafa,stroke:#bdc1c6,stroke-dasharray:6 4\n");
                 layers.add(stages);
             } else {
@@ -241,15 +250,26 @@ public final class MermaidDiagram {
         if (stage.nested().isPresent()) {
             // Mermaid does not make room for multi-line box titles, so the title is the
             // stage name and the details go in a borderless info node at the top.
-            out.append(indent).append("subgraph ").append(id).append(" [\"").append(lines.getFirst())
+            out.append(indent)
+                    .append("subgraph ")
+                    .append(id)
+                    .append(" [\"")
+                    .append(lines.getFirst())
                     .append("\"]\n");
             // Honoured because edges link the box itself, never the nodes inside it.
-            out.append(indent).append("  direction ").append(leftToRight ? "LR" : "TB").append('\n');
+            out.append(indent)
+                    .append("  direction ")
+                    .append(leftToRight ? "LR" : "TB")
+                    .append('\n');
             List<List<String>> inner = new ArrayList<>();
             if (lines.size() > 1) {
                 String info = id + "_info";
-                out.append(indent).append("  ").append(info).append("[\"")
-                        .append(String.join("<br/>", lines.subList(1, lines.size()))).append("\"]\n");
+                out.append(indent)
+                        .append("  ")
+                        .append(info)
+                        .append("[\"")
+                        .append(String.join("<br/>", lines.subList(1, lines.size())))
+                        .append("\"]\n");
                 out.append(indent).append("  class ").append(info).append(" info\n");
                 inner.add(List.of(info));
             }
@@ -257,7 +277,11 @@ public final class MermaidDiagram {
             connect(inner, indent + "  ");
             out.append(indent).append("end\n");
         } else {
-            out.append(indent).append(id).append("[\"").append(String.join("<br/>", lines)).append("\"]\n");
+            out.append(indent)
+                    .append(id)
+                    .append("[\"")
+                    .append(String.join("<br/>", lines))
+                    .append("\"]\n");
         }
         if (result != null) {
             classes.put(id, stageResult == null ? "notReached" : cssClass(stageResult.status()));
@@ -317,8 +341,14 @@ public final class MermaidDiagram {
         }
         options.overwritePolicy().ifPresent(policy -> parts.add("overwrite " + policy));
         if (!stage.requiredReads().isEmpty()) {
-            parts.add("needs " + String.join(", ", stage.requiredReads().stream()
-                    .map(ContextKey::name).sorted().map(MermaidDiagram::escape).toList()));
+            parts.add("needs "
+                    + String.join(
+                            ", ",
+                            stage.requiredReads().stream()
+                                    .map(ContextKey::name)
+                                    .sorted()
+                                    .map(MermaidDiagram::escape)
+                                    .toList()));
         }
         return String.join(" · ", parts);
     }
@@ -370,7 +400,8 @@ public final class MermaidDiagram {
 
     /** Escapes text for a quoted Mermaid label. */
     private static String escape(String text) {
-        return flatten(text).replace("&", "#amp;")
+        return flatten(text)
+                .replace("&", "#amp;")
                 .replace("\"", "#quot;")
                 .replace("<", "#lt;")
                 .replace(">", "#gt;");

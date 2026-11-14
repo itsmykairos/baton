@@ -41,8 +41,7 @@ public final class BatonContext {
         }
     };
 
-    private BatonContext() {
-    }
+    private BatonContext() {}
 
     /** {@return the work the current thread is doing for a run, or empty outside a run} */
     public static Optional<ExecutionScope> current() {

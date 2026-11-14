@@ -53,8 +53,7 @@ public final class DeadlineScheduler implements AutoCloseable {
         ScheduledFuture<?> future = scheduler.schedule(
                 () -> Thread.ofVirtual().name("baton-deadline-action").start(action),
                 deadline.remainingNanos(),
-                TimeUnit.NANOSECONDS
-        );
+                TimeUnit.NANOSECONDS);
         return () -> future.cancel(false);
     }
 

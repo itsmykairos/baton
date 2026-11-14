@@ -4,7 +4,6 @@ import dev.baton.api.event.PipelineEvent;
 import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.StageFinished;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,8 +29,7 @@ public final class RecordingListener implements PipelineListener {
     private int runsFinished;
 
     /** Creates an empty recorder. */
-    public RecordingListener() {
-    }
+    public RecordingListener() {}
 
     @Override
     public synchronized void onEvent(PipelineEvent event) {

@@ -10,6 +10,4 @@ import java.util.UUID;
  * @param pipelineName the outermost pipeline's name
  * @param timestamp when the run started
  */
-public record RunStarted(UUID runId, String pipelineName, Instant timestamp)
-        implements PipelineEvent {
-}
+public record RunStarted(UUID runId, String pipelineName, Instant timestamp) implements PipelineEvent {}

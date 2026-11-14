@@ -26,13 +26,9 @@ public final class StageOptions {
             StageFallback fallback,
             Predicate<ContextView> condition,
             boolean skipIfInputsMissing,
-            OverwritePolicy overwritePolicy
-    ) {
-        if (timeout != null &&
-                (timeout.isZero() || timeout.isNegative())) {
-            throw new IllegalArgumentException(
-                    "timeout must be positive"
-            );
+            OverwritePolicy overwritePolicy) {
+        if (timeout != null && (timeout.isZero() || timeout.isNegative())) {
+            throw new IllegalArgumentException("timeout must be positive");
         }
 
         this.timeout = timeout;
@@ -62,8 +58,14 @@ public final class StageOptions {
      * @throws IllegalArgumentException if the timeout is zero or negative
      */
     public StageOptions withTimeout(Duration timeout) {
-        return new StageOptions(Objects.requireNonNull(timeout, "timeout"), failurePolicy, retry, fallback,
-                condition, skipIfInputsMissing, overwritePolicy);
+        return new StageOptions(
+                Objects.requireNonNull(timeout, "timeout"),
+                failurePolicy,
+                retry,
+                fallback,
+                condition,
+                skipIfInputsMissing,
+                overwritePolicy);
     }
 
     /**
@@ -73,7 +75,8 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withFailurePolicy(FailurePolicy failurePolicy) {
-        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing, overwritePolicy);
+        return new StageOptions(
+                timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing, overwritePolicy);
     }
 
     /**
@@ -83,8 +86,14 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withRetry(RetryPolicy retry) {
-        return new StageOptions(timeout, failurePolicy, Objects.requireNonNull(retry, "retry"), fallback,
-                condition, skipIfInputsMissing, overwritePolicy);
+        return new StageOptions(
+                timeout,
+                failurePolicy,
+                Objects.requireNonNull(retry, "retry"),
+                fallback,
+                condition,
+                skipIfInputsMissing,
+                overwritePolicy);
     }
 
     /**
@@ -95,8 +104,14 @@ public final class StageOptions {
      * @see StageFallback
      */
     public StageOptions withFallback(StageFallback fallback) {
-        return new StageOptions(timeout, failurePolicy, retry, Objects.requireNonNull(fallback, "fallback"),
-                condition, skipIfInputsMissing, overwritePolicy);
+        return new StageOptions(
+                timeout,
+                failurePolicy,
+                retry,
+                Objects.requireNonNull(fallback, "fallback"),
+                condition,
+                skipIfInputsMissing,
+                overwritePolicy);
     }
 
     /**
@@ -115,8 +130,14 @@ public final class StageOptions {
      * @return a copy with this condition
      */
     public StageOptions withCondition(Predicate<ContextView> condition) {
-        return new StageOptions(timeout, failurePolicy, retry, fallback,
-                Objects.requireNonNull(condition, "condition"), skipIfInputsMissing, overwritePolicy);
+        return new StageOptions(
+                timeout,
+                failurePolicy,
+                retry,
+                fallback,
+                Objects.requireNonNull(condition, "condition"),
+                skipIfInputsMissing,
+                overwritePolicy);
     }
 
     /**
@@ -153,7 +174,13 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withOverwritePolicy(OverwritePolicy policy) {
-        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing,
+        return new StageOptions(
+                timeout,
+                failurePolicy,
+                retry,
+                fallback,
+                condition,
+                skipIfInputsMissing,
                 Objects.requireNonNull(policy, "policy"));
     }
 

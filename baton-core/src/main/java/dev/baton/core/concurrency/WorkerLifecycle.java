@@ -1,7 +1,6 @@
 package dev.baton.core.concurrency;
 
 import dev.baton.api.WorkerTermination;
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -21,8 +20,7 @@ public final class WorkerLifecycle {
         TERMINATED
     }
 
-    private final AtomicReference<State> state =
-            new AtomicReference<>(State.QUEUED);
+    private final AtomicReference<State> state = new AtomicReference<>(State.QUEUED);
     private final CountDownLatch workerExit = new CountDownLatch(1);
 
     private volatile Thread worker;
@@ -63,7 +61,7 @@ public final class WorkerLifecycle {
      * CANCEL_REQUESTED until its wrapper reports physical exit.
      */
     public boolean requestCancellation() {
-        for (;;) {
+        for (; ; ) {
             State current = state.get();
 
             switch (current) {
@@ -114,16 +112,13 @@ public final class WorkerLifecycle {
             return WorkerTermination.UNCONFIRMED;
         }
         if (current == State.TERMINATED) {
-            return started
-                    ? WorkerTermination.TERMINATED
-                    : WorkerTermination.NOT_STARTED;
+            return started ? WorkerTermination.TERMINATED : WorkerTermination.NOT_STARTED;
         }
         return WorkerTermination.NOT_STARTED;
     }
 
     /** Waits for physical worker exit, not merely logical cancellation. */
-    public boolean awaitExit(long timeout, TimeUnit unit)
-            throws InterruptedException {
+    public boolean awaitExit(long timeout, TimeUnit unit) throws InterruptedException {
         return workerExit.await(timeout, unit);
     }
 

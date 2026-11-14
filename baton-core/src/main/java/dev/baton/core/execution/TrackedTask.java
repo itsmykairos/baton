@@ -4,7 +4,6 @@ import dev.baton.api.WorkerTermination;
 import dev.baton.core.concurrency.WorkerLifecycle;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
-
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -38,8 +37,7 @@ final class TrackedTask<T> {
             DeadlineScheduler deadlines,
             Callable<T> task,
             Runnable cancellationAction,
-            Consumer<TrackedTask<T>> beforeStart
-    ) {
+            Consumer<TrackedTask<T>> beforeStart) {
         Objects.requireNonNull(executor, "executor");
         this.deadline = Objects.requireNonNull(deadline, "deadline");
         Objects.requireNonNull(deadlines, "deadlines");
@@ -99,12 +97,8 @@ final class TrackedTask<T> {
     }
 
     static <T> TrackedTask<T> submit(
-            ExecutorService executor,
-            Deadline deadline,
-            DeadlineScheduler deadlines,
-            Callable<T> task
-    ) {
-        return submit(executor, deadline, deadlines, task, () -> { });
+            ExecutorService executor, Deadline deadline, DeadlineScheduler deadlines, Callable<T> task) {
+        return submit(executor, deadline, deadlines, task, () -> {});
     }
 
     static <T> TrackedTask<T> submit(
@@ -112,9 +106,8 @@ final class TrackedTask<T> {
             Deadline deadline,
             DeadlineScheduler deadlines,
             Callable<T> task,
-            Runnable cancellationAction
-    ) {
-        return submit(executor, deadline, deadlines, task, cancellationAction, ignored -> { });
+            Runnable cancellationAction) {
+        return submit(executor, deadline, deadlines, task, cancellationAction, ignored -> {});
     }
 
     /** As {@link #submit(ExecutorService, Deadline, DeadlineScheduler, Callable, Runnable)},
@@ -125,9 +118,13 @@ final class TrackedTask<T> {
             DeadlineScheduler deadlines,
             Callable<T> task,
             Runnable cancellationAction,
-            Consumer<TrackedTask<T>> beforeStart
-    ) {
-        return new TrackedTask<>(executor, deadline, deadlines, task, cancellationAction,
+            Consumer<TrackedTask<T>> beforeStart) {
+        return new TrackedTask<>(
+                executor,
+                deadline,
+                deadlines,
+                task,
+                cancellationAction,
                 Objects.requireNonNull(beforeStart, "beforeStart"));
     }
 
@@ -218,9 +215,10 @@ final class TrackedTask<T> {
         }
         // Never cascade into child scopes or engines while holding the lock.
         cancelWorkerAndChildren();
-        outcome.completeExceptionally(expired
-                ? new DeadlineExceededException("Task deadline expired")
-                : new CancellationException("Task was cancelled"));
+        outcome.completeExceptionally(
+                expired
+                        ? new DeadlineExceededException("Task deadline expired")
+                        : new CancellationException("Task was cancelled"));
     }
 
     /** Waits, uninterruptibly, until another thread has published the outcome. */

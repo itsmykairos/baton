@@ -6,12 +6,11 @@ import dev.baton.api.LayerConflictPolicy;
 import dev.baton.api.OverwritePolicy;
 import dev.baton.api.TypeClashPolicy;
 import dev.baton.api.UnjoinedChildFailurePolicy;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.DefaultValue;
-
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * Baton settings under the {@code baton} prefix. Every value is optional: an unset
@@ -49,16 +48,14 @@ public record BatonProperties(
         String defaultPipelineName,
         StageSpec defaultStage,
         @DefaultValue Integrations integrations,
-        Map<String, PipelineSpec> pipelines
-) {
+        Map<String, PipelineSpec> pipelines) {
 
     /**
      * Context settings.
      *
      * @param flattenDepth levels before the context is flattened; 0 means never
      */
-    public record Context(Integer flattenDepth) {
-    }
+    public record Context(Integer flattenDepth) {}
 
     /**
      * Key-conflict policies.
@@ -72,9 +69,7 @@ public record BatonProperties(
             LayerConflictPolicy layer,
             OverwritePolicy overwrite,
             TypeClashPolicy typeClash,
-            Boolean equalValuesConflict
-    ) {
-    }
+            Boolean equalValuesConflict) {}
 
     /**
      * Execution limits and defaults.
@@ -88,9 +83,7 @@ public record BatonProperties(
             Integer maxParallelStages,
             Integer maxChildTasks,
             UnjoinedChildFailurePolicy unjoinedChildFailure,
-            Duration runTimeout
-    ) {
-    }
+            Duration runTimeout) {}
 
     /**
      * Event delivery settings.
@@ -104,9 +97,7 @@ public record BatonProperties(
             Integer bufferCapacity,
             Duration batchInterval,
             EventOverflowPolicy overflowPolicy,
-            Boolean notifyNestedListeners
-    ) {
-    }
+            Boolean notifyNestedListeners) {}
 
     /**
      * Which integrations to wire when they are on the classpath.
@@ -120,9 +111,7 @@ public record BatonProperties(
     public record Integrations(
             @DefaultValue("true") boolean mdc,
             @DefaultValue("true") boolean metrics,
-            @DefaultValue("propagator") TracingMode tracing
-    ) {
-    }
+            @DefaultValue("propagator") TracingMode tracing) {}
 
     /**
      * A pipeline declared in configuration. It becomes a {@code Pipeline} bean named
@@ -132,8 +121,7 @@ public record BatonProperties(
      * @param timeout the run timeout
      * @param layers the layers, in order
      */
-    public record PipelineSpec(String name, Duration timeout, List<StageSpec> layers) {
-    }
+    public record PipelineSpec(String name, Duration timeout, List<StageSpec> layers) {}
 
     /**
      * One layer of a configured pipeline, or one stage of a parallel layer. A layer
@@ -167,9 +155,7 @@ public record BatonProperties(
             String fallback,
             String condition,
             Boolean skipIfInputsMissing,
-            OverwritePolicy overwritePolicy
-    ) {
-    }
+            OverwritePolicy overwritePolicy) {}
 
     /**
      * A retry policy.
@@ -190,9 +176,7 @@ public record BatonProperties(
             Duration maxDelay,
             Double jitter,
             Duration attemptTimeout,
-            String retryOn
-    ) {
-    }
+            String retryOn) {}
 
     /** How runs are traced with OpenTelemetry. */
     public enum TracingMode {

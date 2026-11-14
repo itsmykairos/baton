@@ -1,34 +1,29 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import dev.baton.api.WorkerTermination;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
 
 class TrackedTaskTest {
 
     @Test
-    void timeoutCompletesLogicallyBeforeInterruptionResistantWorkerExits()
-            throws Exception {
+    void timeoutCompletesLogicallyBeforeInterruptionResistantWorkerExits() throws Exception {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor();
-             var deadlines = new DeadlineScheduler()) {
+                var deadlines = new DeadlineScheduler()) {
             CountDownLatch entered = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
 
-            TrackedTask<Void> task = TrackedTask.submit(
-                    executor,
-                    Deadline.after(Duration.ofMillis(80)),
-                    deadlines,
-                    () -> {
+            TrackedTask<Void> task =
+                    TrackedTask.submit(executor, Deadline.after(Duration.ofMillis(80)), deadlines, () -> {
                         entered.countDown();
                         while (release.getCount() > 0) {
                             try {
@@ -38,8 +33,7 @@ class TrackedTaskTest {
                             }
                         }
                         return null;
-                    }
-            );
+                    });
 
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(task::join).isInstanceOf(TimeoutException.class);
@@ -52,22 +46,16 @@ class TrackedTaskTest {
         }
     }
 
-
     @Test
     void cancellationAndNormalCompletionRaceHasExactlyOneLogicalOutcome() throws Exception {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor();
-             var deadlines = new DeadlineScheduler()) {
+                var deadlines = new DeadlineScheduler()) {
             for (int i = 0; i < 250; i++) {
                 CountDownLatch start = new CountDownLatch(1);
-                TrackedTask<Integer> task = TrackedTask.submit(
-                        executor,
-                        Deadline.unlimited(),
-                        deadlines,
-                        () -> {
-                            start.await();
-                            return 7;
-                        }
-                );
+                TrackedTask<Integer> task = TrackedTask.submit(executor, Deadline.unlimited(), deadlines, () -> {
+                    start.await();
+                    return 7;
+                });
 
                 Thread canceller = Thread.ofVirtual().start(() -> {
                     try {
@@ -87,8 +75,7 @@ class TrackedTaskTest {
                 }
                 assertThat(task.isDone()).isTrue();
                 assertThat(task.lifecycle().awaitExit(1, TimeUnit.SECONDS)).isTrue();
-                assertThat(task.workerTermination()).isIn(
-                        WorkerTermination.TERMINATED, WorkerTermination.NOT_STARTED);
+                assertThat(task.workerTermination()).isIn(WorkerTermination.TERMINATED, WorkerTermination.NOT_STARTED);
             }
         }
     }
@@ -96,13 +83,8 @@ class TrackedTaskTest {
     @Test
     void completedTaskRetainsItsResult() throws Exception {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor();
-             var deadlines = new DeadlineScheduler()) {
-            TrackedTask<Integer> task = TrackedTask.submit(
-                    executor,
-                    Deadline.unlimited(),
-                    deadlines,
-                    () -> 42
-            );
+                var deadlines = new DeadlineScheduler()) {
+            TrackedTask<Integer> task = TrackedTask.submit(executor, Deadline.unlimited(), deadlines, () -> 42);
 
             assertThat(task.join()).isEqualTo(42);
             assertThat(task.lifecycle().awaitExit(2, TimeUnit.SECONDS)).isTrue();

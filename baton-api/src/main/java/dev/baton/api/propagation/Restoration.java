@@ -8,7 +8,7 @@ package dev.baton.api.propagation;
 public interface Restoration extends AutoCloseable {
 
     /** A restoration that does nothing. */
-    Restoration NONE = () -> { };
+    Restoration NONE = () -> {};
 
     /**
      * Called before {@link #close()} when the work failed, timed out or was
@@ -16,8 +16,7 @@ public interface Restoration extends AutoCloseable {
      *
      * @param failure what ended the work
      */
-    default void failed(Throwable failure) {
-    }
+    default void failed(Throwable failure) {}
 
     /** Undoes the restoration. Must not throw. */
     @Override

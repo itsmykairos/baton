@@ -32,8 +32,8 @@ public final class RetryPolicy {
     private static final Predicate<Throwable> DEFAULT_RETRY_ON =
             failure -> failure instanceof Exception && !(failure instanceof CancellationException);
 
-    private static final RetryPolicy NONE = new RetryPolicy(
-            1, Duration.ZERO, 1.0, Duration.ZERO, 0.0, null, DEFAULT_RETRY_ON);
+    private static final RetryPolicy NONE =
+            new RetryPolicy(1, Duration.ZERO, 1.0, Duration.ZERO, 0.0, null, DEFAULT_RETRY_ON);
 
     private final int maxAttempts;
     private final Duration initialDelay;
@@ -50,8 +50,7 @@ public final class RetryPolicy {
             Duration maxDelay,
             double jitter,
             Duration attemptTimeout,
-            Predicate<Throwable> retryOn
-    ) {
+            Predicate<Throwable> retryOn) {
         this.maxAttempts = maxAttempts;
         this.initialDelay = initialDelay;
         this.multiplier = multiplier;
@@ -79,8 +78,8 @@ public final class RetryPolicy {
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be at least 1");
         }
-        return new RetryPolicy(maxAttempts, Duration.ofMillis(100), 2.0, Duration.ofSeconds(10),
-                0.0, null, DEFAULT_RETRY_ON);
+        return new RetryPolicy(
+                maxAttempts, Duration.ofMillis(100), 2.0, Duration.ofSeconds(10), 0.0, null, DEFAULT_RETRY_ON);
     }
 
     /**
@@ -95,7 +94,9 @@ public final class RetryPolicy {
     public RetryPolicy withBackoff(Duration initialDelay, double multiplier, Duration maxDelay) {
         Objects.requireNonNull(initialDelay, "initialDelay");
         Objects.requireNonNull(maxDelay, "maxDelay");
-        if (initialDelay.isNegative() || multiplier < 1.0 || Double.isNaN(multiplier)
+        if (initialDelay.isNegative()
+                || multiplier < 1.0
+                || Double.isNaN(multiplier)
                 || maxDelay.compareTo(initialDelay) < 0) {
             throw new IllegalArgumentException(
                     "Require initialDelay >= 0, multiplier >= 1 and maxDelay >= initialDelay");
@@ -172,9 +173,7 @@ public final class RetryPolicy {
      * @return true if another attempt is allowed and the failure is retryable
      */
     public boolean shouldRetry(int attempt, Throwable failure) {
-        return attempt < maxAttempts
-                && !(failure instanceof CancellationException)
-                && retryOn.test(failure);
+        return attempt < maxAttempts && !(failure instanceof CancellationException) && retryOn.test(failure);
     }
 
     /**

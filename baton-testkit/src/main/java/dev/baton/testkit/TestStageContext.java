@@ -4,7 +4,6 @@ import dev.baton.api.ContextView;
 import dev.baton.api.StageContext;
 import dev.baton.api.StageTasks;
 import dev.baton.api.TaskHandle;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

@@ -2,7 +2,6 @@ package dev.baton.testkit;
 
 import dev.baton.api.PipelineResult;
 import dev.baton.api.StageResult;
-
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -14,8 +13,7 @@ import java.util.stream.Collectors;
  */
 public final class PipelineResults {
 
-    private PipelineResults() {
-    }
+    private PipelineResults() {}
 
     /**
      * Finds a stage by path. Nested stages are separated by {@code /}, for example
@@ -33,7 +31,9 @@ public final class PipelineResults {
         List<StageResult> level = result.stages();
         StageResult found = null;
         for (String id : path.split("/", -1)) {
-            found = level.stream().filter(stage -> stage.stageId().equals(id)).findFirst()
+            found = level.stream()
+                    .filter(stage -> stage.stageId().equals(id))
+                    .findFirst()
                     .orElseThrow(noStage(id, path, level));
             level = found.children();
         }
@@ -70,9 +70,15 @@ public final class PipelineResults {
 
     private static void appendStages(StringBuilder text, List<StageResult> stages, int depth) {
         for (StageResult stage : stages) {
-            text.append('\n').append("  ".repeat(depth)).append("- ")
-                    .append(stage.stageId()).append(' ').append(stage.status())
-                    .append(" (").append(stage.duration().toMillis()).append(" ms)");
+            text.append('\n')
+                    .append("  ".repeat(depth))
+                    .append("- ")
+                    .append(stage.stageId())
+                    .append(' ')
+                    .append(stage.status())
+                    .append(" (")
+                    .append(stage.duration().toMillis())
+                    .append(" ms)");
             stage.failure().ifPresent(failure -> text.append(": ").append(summary(failure)));
             appendStages(text, stage.children(), depth + 1);
         }
@@ -86,7 +92,7 @@ public final class PipelineResults {
     private static java.util.function.Supplier<NoSuchElementException> noStage(
             String id, String path, List<StageResult> level) {
         return () -> new NoSuchElementException("No stage '" + id + "' in path '" + path
-                + "'; available: " + level.stream().map(StageResult::stageId)
-                .collect(Collectors.joining(", ", "[", "]")));
+                + "'; available: "
+                + level.stream().map(StageResult::stageId).collect(Collectors.joining(", ", "[", "]")));
     }
 }

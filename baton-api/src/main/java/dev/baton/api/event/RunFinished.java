@@ -1,7 +1,6 @@
 package dev.baton.api.event;
 
 import dev.baton.api.PipelineStatus;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -27,6 +26,5 @@ public record RunFinished(
         Duration duration,
         Optional<Throwable> failure,
         long droppedEvents,
-        Instant timestamp
-) implements PipelineEvent {
-}
+        Instant timestamp)
+        implements PipelineEvent {}

@@ -1,5 +1,8 @@
 package dev.baton.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextMergeException;
 import dev.baton.api.ContextPatch;
@@ -7,14 +10,10 @@ import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
 import dev.baton.api.Stage;
 import dev.baton.api.StageOptions;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
 
 /** Argument and state validation at the public API boundary. */
 class ApiValidationIT {
@@ -28,7 +27,8 @@ class ApiValidationIT {
 
         assertThat(recreated).isEqualTo(first).hasSameHashCodeAs(first);
         assertThat(ContextKey.of("user", Integer.class)).isNotEqualTo(first);
-        assertThat(ContextView.builder().put(first, "ada").build().get(recreated)).isEqualTo("ada");
+        assertThat(ContextView.builder().put(first, "ada").build().get(recreated))
+                .isEqualTo("ada");
     }
 
     @Test
@@ -57,8 +57,7 @@ class ApiValidationIT {
         ContextKey<Object> raw = (ContextKey) ContextKey.of("n", Integer.class);
         assertThatThrownBy(() -> ContextView.builder().put(raw, "not a number"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ContextPatch.builder().put(raw, null))
-                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> ContextPatch.builder().put(raw, null)).isInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -73,8 +72,7 @@ class ApiValidationIT {
 
     @Test
     void retryAndRunOptionsValidateArguments() {
-        assertThatThrownBy(() -> dev.baton.api.RetryPolicy.maxAttempts(0))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> dev.baton.api.RetryPolicy.maxAttempts(0)).isInstanceOf(IllegalArgumentException.class);
         var policy = dev.baton.api.RetryPolicy.maxAttempts(3);
         assertThatThrownBy(() -> policy.withBackoff(Duration.ofMillis(-1), 2, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -83,15 +81,11 @@ class ApiValidationIT {
         assertThatThrownBy(() -> policy.withBackoff(Duration.ofSeconds(2), 2, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> policy.withJitter(1.5)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> policy.withAttemptTimeout(Duration.ZERO))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.withAttemptTimeout(Duration.ZERO)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> policy.retryOn(null)).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> StageOptions.defaults().withRetry(null))
-                .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> StageOptions.defaults().withFallback(null))
-                .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> StageOptions.defaults().withCondition(null))
-                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withRetry(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withFallback(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withCondition(null)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withTimeout(Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withEventBufferCapacity(0))
@@ -122,12 +116,16 @@ class ApiValidationIT {
         assertThat(defaults.overwritePolicy()).isEqualTo(dev.baton.api.OverwritePolicy.OVERRIDE);
         assertThat(defaults.maxParallelStages()).isEqualTo(dev.baton.api.BatonConfig.UNLIMITED);
 
-        var app = dev.baton.api.BatonConfig.builder().contextFlattenDepth(16).maxParallelStages(4).build();
+        var app = dev.baton.api.BatonConfig.builder()
+                .contextFlattenDepth(16)
+                .maxParallelStages(4)
+                .build();
         var pipeline = dev.baton.api.BatonConfig.builder().maxParallelStages(8).build();
         var merged = app.merge(pipeline);
         assertThat(merged.contextFlattenDepth()).isEqualTo(16);
         assertThat(merged.maxParallelStages()).isEqualTo(8);
-        assertThat(merged.toBuilder().maxParallelStages(2).build().contextFlattenDepth()).isEqualTo(16);
+        assertThat(merged.toBuilder().maxParallelStages(2).build().contextFlattenDepth())
+                .isEqualTo(16);
     }
 
     @Test
@@ -138,11 +136,11 @@ class ApiValidationIT {
         assertThat(policy.delayAfter(1)).isEqualTo(Duration.ofMillis(100));
         assertThat(policy.delayAfter(2)).isEqualTo(Duration.ofMillis(200));
         assertThat(policy.delayAfter(3)).isEqualTo(Duration.ofMillis(350));
-        assertThat(policy.withJitter(0.5).delayAfter(2))
-                .isBetween(Duration.ofMillis(100), Duration.ofMillis(200));
+        assertThat(policy.withJitter(0.5).delayAfter(2)).isBetween(Duration.ofMillis(100), Duration.ofMillis(200));
         assertThat(policy.shouldRetry(9, new java.io.IOException())).isTrue();
         assertThat(policy.shouldRetry(10, new java.io.IOException())).isFalse();
-        assertThat(policy.shouldRetry(1, new java.util.concurrent.CancellationException())).isFalse();
+        assertThat(policy.shouldRetry(1, new java.util.concurrent.CancellationException()))
+                .isFalse();
         assertThat(policy.shouldRetry(1, new AssertionError())).isFalse();
     }
 
@@ -151,17 +149,15 @@ class ApiValidationIT {
         assertThatThrownBy(() -> Pipeline.builder().build())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("at least one stage");
-        assertThatThrownBy(() -> Pipeline.builder().stage(" ", NOOP))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> Pipeline.builder().stage("a", null))
-                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Pipeline.builder().stage(" ", NOOP)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Pipeline.builder().stage("a", null)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> Pipeline.builder().stage("a", NOOP).stage("a", NOOP))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Duplicate stage id");
-        assertThatThrownBy(() -> Pipeline.builder().parallel("p", parallel -> { }))
+        assertThatThrownBy(() -> Pipeline.builder().parallel("p", parallel -> {}))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> Pipeline.builder().stage("a", NOOP)
-                .parallel("p", parallel -> parallel.stage("a", NOOP)))
+        assertThatThrownBy(
+                        () -> Pipeline.builder().stage("a", NOOP).parallel("p", parallel -> parallel.stage("a", NOOP)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

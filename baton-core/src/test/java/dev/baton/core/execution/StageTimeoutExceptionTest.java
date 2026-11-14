@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
 import dev.baton.api.FailurePolicy;
@@ -11,13 +13,10 @@ import dev.baton.api.StageOptions;
 import dev.baton.api.StageStatus;
 import dev.baton.api.StageTimeoutException;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 /** Timeouts are reported with a public exception type, never an internal one. */
 class StageTimeoutExceptionTest {
@@ -25,10 +24,13 @@ class StageTimeoutExceptionTest {
     @Test
     void ownTimeoutIsAStageTimeoutExceptionNamingTheLimit() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("slow", context -> {
-                    Thread.sleep(5_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
+                .stage(
+                        "slow",
+                        context -> {
+                            Thread.sleep(5_000);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -44,10 +46,13 @@ class StageTimeoutExceptionTest {
     void runDeadlineIsNamedAsTheCause() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .timeout(Duration.ofMillis(60))
-                .stage("slow", context -> {
-                    Thread.sleep(5_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
+                .stage(
+                        "slow",
+                        context -> {
+                            Thread.sleep(5_000);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withFailurePolicy(FailurePolicy.CONTINUE))
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -72,8 +77,7 @@ class StageTimeoutExceptionTest {
         PipelineResult result = parent.run(ContextView.empty());
 
         var nested = result.stages().getFirst();
-        assertThat(nested.failure().orElseThrow())
-                .hasMessage("Stage 'nested' exceeded its timeout of 60 ms");
+        assertThat(nested.failure().orElseThrow()).hasMessage("Stage 'nested' exceeded its timeout of 60 ms");
         assertThat(nested.children().getFirst().failure().orElseThrow())
                 .isExactlyInstanceOf(StageTimeoutException.class)
                 .hasMessage("Stage 'nested/inner' was stopped because the deadline of its nested pipeline "
@@ -84,24 +88,27 @@ class StageTimeoutExceptionTest {
     void joiningAChildCutOffByTheStageDeadlineThrowsStageTimeoutException() throws Exception {
         AtomicReference<Exception> joinFailure = new AtomicReference<>();
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("parent", context -> {
-                    var child = context.tasks().fork(() -> {
-                        Thread.sleep(5_000);
-                        return "late";
-                    });
-                    // Ignore our own interrupt until the child is cut off, then join it.
-                    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-                    while (!child.isDone() && System.nanoTime() < until) {
-                        Thread.interrupted();
-                    }
-                    Thread.interrupted();
-                    try {
-                        child.join();
-                    } catch (Exception failure) {
-                        joinFailure.set(failure);
-                    }
-                    return ContextPatch.empty();
-                }, StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
+                .stage(
+                        "parent",
+                        context -> {
+                            var child = context.tasks().fork(() -> {
+                                Thread.sleep(5_000);
+                                return "late";
+                            });
+                            // Ignore our own interrupt until the child is cut off, then join it.
+                            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                            while (!child.isDone() && System.nanoTime() < until) {
+                                Thread.interrupted();
+                            }
+                            Thread.interrupted();
+                            try {
+                                child.join();
+                            } catch (Exception failure) {
+                                joinFailure.set(failure);
+                            }
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults().withTimeout(Duration.ofMillis(50)))
                 .build();
 
         pipeline.run(ContextView.empty());
@@ -110,7 +117,8 @@ class StageTimeoutExceptionTest {
         while (joinFailure.get() == null && System.nanoTime() < deadline) {
             Thread.sleep(5);
         }
-        assertThat(joinFailure.get()).isExactlyInstanceOf(StageTimeoutException.class)
+        assertThat(joinFailure.get())
+                .isExactlyInstanceOf(StageTimeoutException.class)
                 .hasMessage("Child task was stopped because its stage's deadline expired");
     }
 
@@ -118,21 +126,27 @@ class StageTimeoutExceptionTest {
     void fallbacksAndAttemptTimeoutsUseThePublicTypes() throws Exception {
         AtomicReference<Throwable> seenByFallback = new AtomicReference<>();
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("slow", context -> {
-                    Thread.sleep(5_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults()
-                        .withTimeout(Duration.ofMillis(50))
-                        .withFallback((context, failure) -> {
-                            seenByFallback.set(failure);
+                .stage(
+                        "slow",
+                        context -> {
+                            Thread.sleep(5_000);
                             return ContextPatch.empty();
-                        }))
-                .stage("attempts", context -> {
-                    Thread.sleep(5_000);
-                    return ContextPatch.empty();
-                }, StageOptions.defaults()
-                        .withFailurePolicy(FailurePolicy.CONTINUE)
-                        .withRetry(RetryPolicy.maxAttempts(1).withAttemptTimeout(Duration.ofMillis(30))))
+                        },
+                        StageOptions.defaults()
+                                .withTimeout(Duration.ofMillis(50))
+                                .withFallback((context, failure) -> {
+                                    seenByFallback.set(failure);
+                                    return ContextPatch.empty();
+                                }))
+                .stage(
+                        "attempts",
+                        context -> {
+                            Thread.sleep(5_000);
+                            return ContextPatch.empty();
+                        },
+                        StageOptions.defaults()
+                                .withFailurePolicy(FailurePolicy.CONTINUE)
+                                .withRetry(RetryPolicy.maxAttempts(1).withAttemptTimeout(Duration.ofMillis(30))))
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());

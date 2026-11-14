@@ -22,6 +22,5 @@ public record StageRetrying(
         int failedAttempt,
         Throwable failure,
         Duration delay,
-        Instant timestamp
-) implements PipelineEvent {
-}
+        Instant timestamp)
+        implements PipelineEvent {}

@@ -7,6 +7,9 @@ import dev.baton.api.RetryPolicy;
 import dev.baton.api.Stage;
 import dev.baton.api.StageFallback;
 import dev.baton.api.StageOptions;
+import java.time.Duration;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -14,10 +17,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
-
-import java.time.Duration;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The Baton starter in a Spring Boot web app.
@@ -85,7 +84,9 @@ public class SpringExample {
     @Bean
     StageFallback noRecommendations() {
         return (context, failure) -> {
-            LOG.info("recommendations unavailable ({}), using none", failure.getClass().getSimpleName());
+            LOG.info(
+                    "recommendations unavailable ({}), using none",
+                    failure.getClass().getSimpleName());
             return ContextPatch.builder().put(RECOMMENDATION, "none").build();
         };
     }
@@ -95,15 +96,20 @@ public class SpringExample {
     Pipeline payment(Pipeline.Builder builder) {
         AtomicInteger calls = new AtomicInteger();
         return builder.name("payment")
-                .stage("charge", context -> {
-                    if (calls.incrementAndGet() % 2 == 1) {
-                        LOG.info("payment gateway timed out");
-                        throw new java.io.IOException("gateway timeout");
-                    }
-                    LOG.info("charged order {}", context.context().get(ORDER));
-                    return ContextPatch.builder().put(RECEIPT, "pay-" + context.context().get(ORDER)).build();
-                }, StageOptions.defaults().withRetry(RetryPolicy.maxAttempts(3)
-                        .withFixedDelay(Duration.ofMillis(50))))
+                .stage(
+                        "charge",
+                        context -> {
+                            if (calls.incrementAndGet() % 2 == 1) {
+                                LOG.info("payment gateway timed out");
+                                throw new java.io.IOException("gateway timeout");
+                            }
+                            LOG.info("charged order {}", context.context().get(ORDER));
+                            return ContextPatch.builder()
+                                    .put(RECEIPT, "pay-" + context.context().get(ORDER))
+                                    .build();
+                        },
+                        StageOptions.defaults()
+                                .withRetry(RetryPolicy.maxAttempts(3).withFixedDelay(Duration.ofMillis(50))))
                 .build();
     }
 }

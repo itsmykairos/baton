@@ -1,7 +1,6 @@
 package dev.baton.api.event;
 
 import dev.baton.api.KeyConflict;
-
 import java.time.Instant;
 import java.util.UUID;
 
@@ -15,5 +14,4 @@ import java.util.UUID;
  * @param timestamp when it was resolved
  */
 public record ContextConflict(UUID runId, String pipelineName, KeyConflict conflict, Instant timestamp)
-        implements PipelineEvent {
-}
+        implements PipelineEvent {}

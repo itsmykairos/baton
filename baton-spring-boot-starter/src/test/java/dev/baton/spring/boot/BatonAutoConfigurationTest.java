@@ -1,5 +1,7 @@
 package dev.baton.spring.boot;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.BatonConfig;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
@@ -27,6 +29,9 @@ import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -35,12 +40,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-
-import java.time.Duration;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Predicate;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 class BatonAutoConfigurationTest {
 
@@ -51,8 +50,8 @@ class BatonAutoConfigurationTest {
     static final ContextKey<String> VIP = ContextKey.of("vip", String.class);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(BatonAutoConfiguration.class,
-                    BatonEndpointAutoConfiguration.class));
+            .withConfiguration(
+                    AutoConfigurations.of(BatonAutoConfiguration.class, BatonEndpointAutoConfiguration.class));
 
     /** Stage beans and a code-declared nested pipeline. */
     @Configuration(proxyBeanMethods = false)
@@ -79,7 +78,8 @@ class BatonAutoConfigurationTest {
 
         @Bean
         StageFallback noRecommendations() {
-            return (context, failure) -> ContextPatch.builder().put(RECOMMENDATION, "none").build();
+            return (context, failure) ->
+                    ContextPatch.builder().put(RECOMMENDATION, "none").build();
         }
 
         @Bean
@@ -98,32 +98,37 @@ class BatonAutoConfigurationTest {
                 if (chargeCalls.incrementAndGet() == 1) {
                     throw new java.io.IOException("gateway down");
                 }
-                return ContextPatch.builder().put(RECEIPT, "paid " + context.context().get(ORDER)).build();
+                return ContextPatch.builder()
+                        .put(RECEIPT, "paid " + context.context().get(ORDER))
+                        .build();
             };
         }
 
         @Bean
         Pipeline payment(Pipeline.Builder builder, @Qualifier("charge") Stage charge) {
             return builder.name("payment")
-                    .stage("charge", charge, StageOptions.defaults()
-                            .withRetry(RetryPolicy.maxAttempts(3).withFixedDelay(Duration.ZERO)))
+                    .stage(
+                            "charge",
+                            charge,
+                            StageOptions.defaults()
+                                    .withRetry(RetryPolicy.maxAttempts(3).withFixedDelay(Duration.ZERO)))
                     .build();
         }
     }
 
     private static final String[] CHECKOUT_YAML = {
-            "baton.pipelines.checkout.timeout=5s",
-            "baton.pipelines.checkout.layers[0].stage=loadOrder",
-            "baton.pipelines.checkout.layers[0].id=load-order",
-            "baton.pipelines.checkout.layers[1].parallel=enrich",
-            "baton.pipelines.checkout.layers[1].stages[0].stage=customer",
-            "baton.pipelines.checkout.layers[1].stages[1].stage=recommendations",
-            "baton.pipelines.checkout.layers[1].stages[1].timeout=100ms",
-            "baton.pipelines.checkout.layers[1].stages[1].fallback=noRecommendations",
-            "baton.pipelines.checkout.layers[2].pipeline=payment",
-            "baton.pipelines.checkout.layers[3].stage=vipGift",
-            "baton.pipelines.checkout.layers[3].condition=isVip",
-            "baton.pipelines.checkout.layers[3].failure-policy=continue",
+        "baton.pipelines.checkout.timeout=5s",
+        "baton.pipelines.checkout.layers[0].stage=loadOrder",
+        "baton.pipelines.checkout.layers[0].id=load-order",
+        "baton.pipelines.checkout.layers[1].parallel=enrich",
+        "baton.pipelines.checkout.layers[1].stages[0].stage=customer",
+        "baton.pipelines.checkout.layers[1].stages[1].stage=recommendations",
+        "baton.pipelines.checkout.layers[1].stages[1].timeout=100ms",
+        "baton.pipelines.checkout.layers[1].stages[1].fallback=noRecommendations",
+        "baton.pipelines.checkout.layers[2].pipeline=payment",
+        "baton.pipelines.checkout.layers[3].stage=vipGift",
+        "baton.pipelines.checkout.layers[3].condition=isVip",
+        "baton.pipelines.checkout.layers[3].failure-policy=continue",
     };
 
     // ---- config from properties ----------------------------------------------------
@@ -152,8 +157,10 @@ class BatonAutoConfigurationTest {
                     assertThat(config.eventBatchInterval()).isEqualTo(Duration.ofMillis(20));
                     assertThat(config.defaultPipelineName()).isEqualTo("orders");
                     assertThat(config.defaultStageOptions().timeout()).contains(Duration.ofSeconds(2));
-                    assertThat(config.defaultStageOptions().retry().maxAttempts()).isEqualTo(3);
-                    assertThat(config.defaultStageOptions().retry().delayAfter(2)).isEqualTo(Duration.ofMillis(100));
+                    assertThat(config.defaultStageOptions().retry().maxAttempts())
+                            .isEqualTo(3);
+                    assertThat(config.defaultStageOptions().retry().delayAfter(2))
+                            .isEqualTo(Duration.ofMillis(100));
                     // Unset settings keep the built-in defaults.
                     assertThat(config.typeClashPolicy()).isEqualTo(dev.baton.api.TypeClashPolicy.FAIL);
                     assertThat(config.contextPropagators()).hasAtLeastOneElementOfType(MdcContextPropagator.class);
@@ -162,8 +169,8 @@ class BatonAutoConfigurationTest {
 
     @Test
     void mdcPropagationCanBeTurnedOff() {
-        runner.withPropertyValues("baton.integrations.mdc=false").run(context ->
-                assertThat(context.getBean(BatonConfig.class).contextPropagators())
+        runner.withPropertyValues("baton.integrations.mdc=false")
+                .run(context -> assertThat(context.getBean(BatonConfig.class).contextPropagators())
                         .noneMatch(MdcContextPropagator.class::isInstance));
     }
 
@@ -214,33 +221,44 @@ class BatonAutoConfigurationTest {
 
     @Test
     void configuredPipelineRunsWithParallelLayersNestedPipelinesAndOptions() {
-        runner.withUserConfiguration(Stages.class).withPropertyValues(CHECKOUT_YAML).run(context -> {
-            Pipeline checkout = context.getBean("checkout", Pipeline.class);
-            PipelineResult result = checkout.run(ContextView.empty());
+        runner.withUserConfiguration(Stages.class)
+                .withPropertyValues(CHECKOUT_YAML)
+                .run(context -> {
+                    Pipeline checkout = context.getBean("checkout", Pipeline.class);
+                    PipelineResult result = checkout.run(ContextView.empty());
 
-            PipelineResults.requireSuccess(result);
-            assertThat(result.stages()).extracting("stageId")
-                    .containsExactly("load-order", "customer", "recommendations", "payment", "vipGift");
-            assertThat(PipelineResults.stage(result, "recommendations").status()).isEqualTo(StageStatus.RECOVERED);
-            assertThat(PipelineResults.stage(result, "payment/charge").attempts()).isEqualTo(2);
-            assertThat(result.context().get(RECEIPT)).isEqualTo("paid A-1");
-            assertThat(result.context().get(VIP)).isEqualTo("gift");
-            assertThat(checkout.describe().name()).isEqualTo("checkout");
-            assertThat(checkout.describe().config().runTimeout()).contains(Duration.ofSeconds(5));
-            assertThat(checkout.describe().stage("vipGift").orElseThrow().options().failurePolicy())
-                    .isEqualTo(dev.baton.api.FailurePolicy.CONTINUE);
-        });
+                    PipelineResults.requireSuccess(result);
+                    assertThat(result.stages())
+                            .extracting("stageId")
+                            .containsExactly("load-order", "customer", "recommendations", "payment", "vipGift");
+                    assertThat(PipelineResults.stage(result, "recommendations").status())
+                            .isEqualTo(StageStatus.RECOVERED);
+                    assertThat(PipelineResults.stage(result, "payment/charge").attempts())
+                            .isEqualTo(2);
+                    assertThat(result.context().get(RECEIPT)).isEqualTo("paid A-1");
+                    assertThat(result.context().get(VIP)).isEqualTo("gift");
+                    assertThat(checkout.describe().name()).isEqualTo("checkout");
+                    assertThat(checkout.describe().config().runTimeout()).contains(Duration.ofSeconds(5));
+                    assertThat(checkout.describe()
+                                    .stage("vipGift")
+                                    .orElseThrow()
+                                    .options()
+                                    .failurePolicy())
+                            .isEqualTo(dev.baton.api.FailurePolicy.CONTINUE);
+                });
     }
 
     @Test
     void configuredPipelinesCanNestEachOther() {
-        runner.withUserConfiguration(Stages.class).withPropertyValues(
+        runner.withUserConfiguration(Stages.class)
+                .withPropertyValues(
                         "baton.pipelines.inner.layers[0].stage=loadOrder",
                         "baton.pipelines.outer.name=outer-flow",
                         "baton.pipelines.outer.layers[0].pipeline=inner",
                         "baton.pipelines.outer.layers[1].stage=customer")
                 .run(context -> {
-                    PipelineResult result = context.getBean("outer", Pipeline.class).run(ContextView.empty());
+                    PipelineResult result =
+                            context.getBean("outer", Pipeline.class).run(ContextView.empty());
                     PipelineResults.requireSuccess(result);
                     assertThat(result.context().get(ORDER)).isEqualTo("A-1");
                     assertThat(PipelineResults.stage(result, "inner/loadOrder").status())
@@ -255,37 +273,39 @@ class BatonAutoConfigurationTest {
                 .run(context -> assertThat(startupFailure(context))
                         .contains("baton.pipelines.p.layers[0].stage: no Stage bean named 'missing'"));
         runner.withUserConfiguration(Stages.class)
-                .withPropertyValues("baton.pipelines.p.layers[0].stage=customer",
-                        "baton.pipelines.p.layers[0].pipeline=payment")
+                .withPropertyValues(
+                        "baton.pipelines.p.layers[0].stage=customer", "baton.pipelines.p.layers[0].pipeline=payment")
                 .run(context -> assertThat(startupFailure(context))
                         .contains("baton.pipelines.p.layers[0] must name exactly one of stage, pipeline or parallel"));
         runner.withUserConfiguration(Stages.class)
-                .withPropertyValues("baton.pipelines.a.layers[0].pipeline=b",
-                        "baton.pipelines.b.layers[0].pipeline=a")
+                .withPropertyValues("baton.pipelines.a.layers[0].pipeline=b", "baton.pipelines.b.layers[0].pipeline=a")
                 .run(context -> assertThat(startupFailure(context)).contains("cycle: a -> b -> a"));
         runner.withUserConfiguration(Stages.class)
-                .withPropertyValues("baton.pipelines.p.layers[0].parallel=x",
+                .withPropertyValues(
+                        "baton.pipelines.p.layers[0].parallel=x",
                         "baton.pipelines.p.layers[0].stages[0].stage=customer",
                         "baton.pipelines.p.layers[0].timeout=2s")
                 .run(context -> assertThat(startupFailure(context))
                         .contains("baton.pipelines.p.layers[0]: options and id cannot be set on a parallel layer"));
         runner.withUserConfiguration(Stages.class)
-                .withPropertyValues("baton.pipelines.p.layers[0].stage=customer",
+                .withPropertyValues(
+                        "baton.pipelines.p.layers[0].stage=customer",
                         "baton.pipelines.p.layers[0].retry.max-attempts=3",
                         "baton.pipelines.p.layers[0].retry.backoff=2s",
                         "baton.pipelines.p.layers[0].retry.max-delay=1s")
                 .run(context -> assertThat(startupFailure(context))
                         .contains("baton.pipelines.p.layers[0].retry: Require initialDelay"));
         runner.withPropertyValues("baton.default-stage.stage=customer")
-                .run(context -> assertThat(startupFailure(context))
-                        .contains("baton.default-stage takes stage options only"));
+                .run(context ->
+                        assertThat(startupFailure(context)).contains("baton.default-stage takes stage options only"));
         runner.withUserConfiguration(Stages.class)
                 .withPropertyValues("baton.pipelines.p.layers[0].parallel=x")
-                .run(context -> assertThat(startupFailure(context))
-                        .contains("baton.pipelines.p.layers[0].stages must list"));
+                .run(context ->
+                        assertThat(startupFailure(context)).contains("baton.pipelines.p.layers[0].stages must list"));
     }
 
-    private static String startupFailure(org.springframework.boot.test.context.assertj.AssertableApplicationContext context) {
+    private static String startupFailure(
+            org.springframework.boot.test.context.assertj.AssertableApplicationContext context) {
         assertThat(context).hasFailed();
         StringBuilder messages = new StringBuilder();
         for (Throwable failure = context.getStartupFailure(); failure != null; failure = failure.getCause()) {
@@ -306,16 +326,24 @@ class BatonAutoConfigurationTest {
                     context.getBean(RecordingListener.class).awaitRunsFinished(1, Duration.ofSeconds(5));
                     MeterRegistry registry = context.getBean(MeterRegistry.class);
                     assertThat(registry.get(MicrometerPipelineListener.STAGE_DURATION)
-                            .tags("pipeline", "checkout", "stage", "payment/charge").timer().count()).isEqualTo(1);
-                    assertThat(registry.get(MicrometerPipelineListener.STAGE_RETRIES).counter().count())
+                                    .tags("pipeline", "checkout", "stage", "payment/charge")
+                                    .timer()
+                                    .count())
+                            .isEqualTo(1);
+                    assertThat(registry.get(MicrometerPipelineListener.STAGE_RETRIES)
+                                    .counter()
+                                    .count())
                             .isEqualTo(1.0);
                 });
     }
 
     @Test
     void runsStillWorkWithoutAMeterRegistry() {
-        runner.withUserConfiguration(Stages.class).withPropertyValues(CHECKOUT_YAML).run(context ->
-                assertThat(context.getBean("checkout", Pipeline.class).run(ContextView.empty()).isSuccessful())
+        runner.withUserConfiguration(Stages.class)
+                .withPropertyValues(CHECKOUT_YAML)
+                .run(context -> assertThat(context.getBean("checkout", Pipeline.class)
+                                .run(ContextView.empty())
+                                .isSuccessful())
                         .isTrue());
     }
 
@@ -327,12 +355,17 @@ class BatonAutoConfigurationTest {
                 .withPropertyValues(CHECKOUT_YAML)
                 .run(context -> {
                     context.getBean("checkout", Pipeline.class).run(ContextView.empty());
-                    assertThat(exporter.getFinishedSpanItems()).extracting(SpanData::getName)
+                    assertThat(exporter.getFinishedSpanItems())
+                            .extracting(SpanData::getName)
                             .contains("checkout", "load-order", "payment", "charge");
                     SpanData charge = exporter.getFinishedSpanItems().stream()
-                            .filter(span -> span.getName().equals("charge")).findFirst().orElseThrow();
+                            .filter(span -> span.getName().equals("charge"))
+                            .findFirst()
+                            .orElseThrow();
                     SpanData payment = exporter.getFinishedSpanItems().stream()
-                            .filter(span -> span.getName().equals("payment")).findFirst().orElseThrow();
+                            .filter(span -> span.getName().equals("payment"))
+                            .findFirst()
+                            .orElseThrow();
                     assertThat(charge.getParentSpanId()).isEqualTo(payment.getSpanId());
                 });
     }
@@ -349,7 +382,8 @@ class BatonAutoConfigurationTest {
                             .allMatch(MdcContextPropagator.class::isInstance);
                     context.getBean("checkout", Pipeline.class).run(ContextView.empty());
                     context.getBean(RecordingListener.class).awaitRunsFinished(1, Duration.ofSeconds(5));
-                    assertThat(exporter.getFinishedSpanItems()).extracting(SpanData::getName)
+                    assertThat(exporter.getFinishedSpanItems())
+                            .extracting(SpanData::getName)
                             .contains("checkout", "charge");
                 });
         InMemorySpanExporter none = InMemorySpanExporter.create();
@@ -366,7 +400,8 @@ class BatonAutoConfigurationTest {
     private static OpenTelemetry sdk(InMemorySpanExporter exporter) {
         return OpenTelemetrySdk.builder()
                 .setTracerProvider(SdkTracerProvider.builder()
-                        .addSpanProcessor(SimpleSpanProcessor.create(exporter)).build())
+                        .addSpanProcessor(SimpleSpanProcessor.create(exporter))
+                        .build())
                 .build();
     }
 
@@ -387,13 +422,20 @@ class BatonAutoConfigurationTest {
 
                     var checkout = endpoint.pipeline("checkout");
                     assertThat(checkout.name()).isEqualTo("checkout");
-                    assertThat(checkout.layers()).extracting(BatonEndpoint.LayerReport::id)
+                    assertThat(checkout.layers())
+                            .extracting(BatonEndpoint.LayerReport::id)
                             .containsExactly("load-order", "enrich", "payment", "vipGift");
                     assertThat(checkout.layers().get(1).parallel()).isTrue();
                     var recommendations = checkout.layers().get(1).stages().get(1);
                     assertThat(recommendations.timeout()).isEqualTo("PT0.1S");
                     assertThat(recommendations.fallback()).isTrue();
-                    assertThat(checkout.layers().get(2).stages().getFirst().nested().name()).isEqualTo("payment");
+                    assertThat(checkout.layers()
+                                    .get(2)
+                                    .stages()
+                                    .getFirst()
+                                    .nested()
+                                    .name())
+                            .isEqualTo("payment");
                     assertThat(checkout.settings().runTimeout()).isEqualTo("PT5S");
                     assertThat(checkout.mermaid()).startsWith("---\ntitle: \"checkout\"");
                     assertThat(endpoint.pipeline("missing")).isNull();
@@ -410,7 +452,7 @@ class BatonAutoConfigurationTest {
 
     @Test
     void endpointIsAbsentUnlessExposed() {
-        runner.withUserConfiguration(Stages.class).run(context ->
-                assertThat(context).doesNotHaveBean(BatonEndpoint.class));
+        runner.withUserConfiguration(Stages.class)
+                .run(context -> assertThat(context).doesNotHaveBean(BatonEndpoint.class));
     }
 }

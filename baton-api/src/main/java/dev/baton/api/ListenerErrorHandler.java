@@ -21,9 +21,11 @@ public interface ListenerErrorHandler {
 
     /** {@return the default handler: logs a WARNING to the {@code dev.baton.event} System.Logger} */
     static ListenerErrorHandler logging() {
-        return (listener, event, failure) -> System.getLogger("dev.baton.event").log(
-                System.Logger.Level.WARNING,
-                "Pipeline listener " + listener + " failed on " + event.getClass().getSimpleName(),
-                failure);
+        return (listener, event, failure) -> System.getLogger("dev.baton.event")
+                .log(
+                        System.Logger.Level.WARNING,
+                        "Pipeline listener " + listener + " failed on "
+                                + event.getClass().getSimpleName(),
+                        failure);
     }
 }

@@ -23,9 +23,7 @@ import java.util.Set;
  */
 final class ImmutableContextView implements ContextView {
 
-
-    private static final ImmutableContextView EMPTY =
-            new ImmutableContextView(null, Map.of(), Map.of(), 0);
+    private static final ImmutableContextView EMPTY = new ImmutableContextView(null, Map.of(), Map.of(), 0);
 
     /** The level below, or null for the bottom level. */
     private final ImmutableContextView parent;
@@ -33,6 +31,7 @@ final class ImmutableContextView implements ContextView {
     private final Map<ContextKey<?>, Object> values;
     /** This level's keys by name. */
     private final Map<String, ContextKey<?>> byName;
+
     private final int depth;
     /** All keys in insertion order, built on first use. */
     private volatile Set<ContextKey<?>> keys;
@@ -41,8 +40,7 @@ final class ImmutableContextView implements ContextView {
             ImmutableContextView parent,
             Map<ContextKey<?>, Object> values,
             Map<String, ContextKey<?>> byName,
-            int depth
-    ) {
+            int depth) {
         this.parent = parent;
         this.values = values;
         this.byName = byName;
@@ -98,20 +96,18 @@ final class ImmutableContextView implements ContextView {
             return copyOf(writes);
         }
         // Replacing a type needs a flat copy, so the old key cannot be found in a lower level.
-        boolean flatten = replaced != null
-                || (flattenDepth != BatonConfig.NEVER_FLATTEN && depth + 2 > flattenDepth);
+        boolean flatten = replaced != null || (flattenDepth != BatonConfig.NEVER_FLATTEN && depth + 2 > flattenDepth);
         if (flatten) {
             Map<ContextKey<?>, Object> flat = flatValues();
             if (replaced != null) {
                 replaced.forEach(flat::remove);
             }
             flat.putAll(writes);
-            return new ImmutableContextView(null, Collections.unmodifiableMap(flat),
-                    indexByName(flat.keySet()), 0);
+            return new ImmutableContextView(null, Collections.unmodifiableMap(flat), indexByName(flat.keySet()), 0);
         }
         Map<ContextKey<?>, Object> level = new LinkedHashMap<>(writes);
-        return new ImmutableContextView(this, Collections.unmodifiableMap(level),
-                indexByName(level.keySet()), depth + 1);
+        return new ImmutableContextView(
+                this, Collections.unmodifiableMap(level), indexByName(level.keySet()), depth + 1);
     }
 
     /** A context holds at most one type per key name. */
@@ -127,11 +123,9 @@ final class ImmutableContextView implements ContextView {
     }
 
     static IllegalArgumentException typeClash(ContextKey<?> existing, ContextKey<?> added) {
-        return new IllegalArgumentException(
-                "Context key '" + existing.name() + "' is already used with type "
-                        + existing.type().getName() + "; cannot also use type "
-                        + added.type().getName()
-        );
+        return new IllegalArgumentException("Context key '" + existing.name() + "' is already used with type "
+                + existing.type().getName() + "; cannot also use type "
+                + added.type().getName());
     }
 
     private ContextKey<?> findKeyNamed(String name) {
@@ -179,9 +173,7 @@ final class ImmutableContextView implements ContextView {
         Objects.requireNonNull(key, "key");
         Object value = lookup(key);
         if (value == null) {
-            throw new NoSuchElementException(
-                    "Context value is missing: " + key.name()
-            );
+            throw new NoSuchElementException("Context value is missing: " + key.name());
         }
         return key.cast(value);
     }
@@ -223,22 +215,16 @@ final class ImmutableContextView implements ContextView {
 
     static final class BuilderImpl implements ContextView.Builder {
 
-        private final Map<ContextKey<?>, Object> values =
-                new LinkedHashMap<>();
+        private final Map<ContextKey<?>, Object> values = new LinkedHashMap<>();
         private final Map<String, ContextKey<?>> byName = new HashMap<>();
 
         @Override
-        public <T> BuilderImpl put(
-                ContextKey<T> key,
-                T value
-        ) {
+        public <T> BuilderImpl put(ContextKey<T> key, T value) {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(value, "value");
 
             if (!key.type().isInstance(value)) {
-                throw new IllegalArgumentException(
-                        "Invalid value type for key: " + key.name()
-                );
+                throw new IllegalArgumentException("Invalid value type for key: " + key.name());
             }
             ContextKey<?> existing = byName.putIfAbsent(key.name(), key);
             if (existing != null && existing.clashesWith(key)) {

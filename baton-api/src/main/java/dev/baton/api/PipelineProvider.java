@@ -19,14 +19,9 @@ public interface PipelineProvider {
      */
     static PipelineProvider load() {
 
-        return ServiceLoader
-                .load(PipelineProvider.class)
+        return ServiceLoader.load(PipelineProvider.class)
                 .findFirst()
-                .orElseThrow(() ->
-                        new IllegalStateException(
-                                "No Baton PipelineProvider found. "
-                                + "Add baton-core to the runtime classpath."
-                        )
-                );
+                .orElseThrow(() -> new IllegalStateException(
+                        "No Baton PipelineProvider found. " + "Add baton-core to the runtime classpath."));
     }
 }

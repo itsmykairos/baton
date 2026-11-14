@@ -1,7 +1,6 @@
 package dev.baton.api;
 
 import dev.baton.api.event.PipelineListener;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;

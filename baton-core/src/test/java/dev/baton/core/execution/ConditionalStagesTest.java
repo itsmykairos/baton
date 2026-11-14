@@ -1,5 +1,7 @@
 package dev.baton.core.execution;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
@@ -18,15 +20,12 @@ import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.StageFinished;
 import dev.baton.api.event.StageStarted;
 import dev.baton.core.builder.DefaultPipelineBuilder;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class ConditionalStagesTest {
 
@@ -40,14 +39,19 @@ class ConditionalStagesTest {
         List<PipelineEvent> events = new CopyOnWriteArrayList<>();
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .listener(events::add)
-                .stage("offer", context -> {
-                    runs.incrementAndGet();
-                    return ContextPatch.builder().put(OFFER, "gold").build();
-                }, StageOptions.defaults().withCondition(context -> context.find(PREMIUM).orElse(false)))
+                .stage(
+                        "offer",
+                        context -> {
+                            runs.incrementAndGet();
+                            return ContextPatch.builder().put(OFFER, "gold").build();
+                        },
+                        StageOptions.defaults()
+                                .withCondition(context -> context.find(PREMIUM).orElse(false)))
                 .stage("next", context -> ContextPatch.empty())
                 .build();
 
-        PipelineResult result = pipeline.run(ContextView.builder().put(PREMIUM, false).build());
+        PipelineResult result =
+                pipeline.run(ContextView.builder().put(PREMIUM, false).build());
 
         StageResult offer = result.stages().getFirst();
         assertThat(runs).hasValue(0);
@@ -57,24 +61,30 @@ class ConditionalStagesTest {
         assertThat(result.isSuccessful()).isTrue();
         assertThat(result.hasFailures()).isFalse();
         assertThat(result.context().contains(OFFER)).isFalse();
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.SKIPPED, StageStatus.SUCCEEDED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.SKIPPED, StageStatus.SUCCEEDED);
 
         awaitRunFinished(events);
-        assertThat(events).noneMatch(event -> event instanceof StageStarted started
-                && started.path().stageId().equals("offer"));
-        assertThat(events).filteredOn(StageFinished.class::isInstance).map(StageFinished.class::cast)
-                .extracting(StageFinished::status).containsExactly(StageStatus.SKIPPED, StageStatus.SUCCEEDED);
+        assertThat(events)
+                .noneMatch(event -> event instanceof StageStarted started
+                        && started.path().stageId().equals("offer"));
+        assertThat(events)
+                .filteredOn(StageFinished.class::isInstance)
+                .map(StageFinished.class::cast)
+                .extracting(StageFinished::status)
+                .containsExactly(StageStatus.SKIPPED, StageStatus.SUCCEEDED);
     }
 
     @Test
     void trueConditionRunsTheStage() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("offer", context -> ContextPatch.builder().put(OFFER, "gold").build(),
+                .stage(
+                        "offer",
+                        context -> ContextPatch.builder().put(OFFER, "gold").build(),
                         StageOptions.defaults().withCondition(context -> context.get(PREMIUM)))
                 .build();
 
-        PipelineResult result = pipeline.run(ContextView.builder().put(PREMIUM, true).build());
+        PipelineResult result =
+                pipeline.run(ContextView.builder().put(PREMIUM, true).build());
 
         assertThat(result.stages().getFirst().status()).isEqualTo(StageStatus.SUCCEEDED);
         assertThat(result.context().get(OFFER)).isEqualTo("gold");
@@ -83,8 +93,12 @@ class ConditionalStagesTest {
     @Test
     void conditionSeesValuesWrittenByEarlierLayers() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("classify", context -> ContextPatch.builder().put(PREMIUM, true).build())
-                .stage("offer", context -> ContextPatch.builder().put(OFFER, "gold").build(),
+                .stage(
+                        "classify",
+                        context -> ContextPatch.builder().put(PREMIUM, true).build())
+                .stage(
+                        "offer",
+                        context -> ContextPatch.builder().put(OFFER, "gold").build(),
                         StageOptions.defaults().withCondition(context -> context.get(PREMIUM)))
                 .build();
 
@@ -96,9 +110,8 @@ class ConditionalStagesTest {
         Pipeline optional = new DefaultPipelineBuilder()
                 .stage("notify", needs(EMAIL), StageOptions.defaults().skipIfInputsMissing())
                 .build();
-        Pipeline required = new DefaultPipelineBuilder()
-                .stage("notify", needs(EMAIL))
-                .build();
+        Pipeline required =
+                new DefaultPipelineBuilder().stage("notify", needs(EMAIL)).build();
 
         PipelineResult skipped = optional.run(ContextView.empty());
         PipelineResult blocked = required.run(ContextView.empty());
@@ -112,7 +125,9 @@ class ConditionalStagesTest {
     @Test
     void skippedOutputCascadesToDependentStages() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("offer", context -> ContextPatch.builder().put(OFFER, "gold").build(),
+                .stage(
+                        "offer",
+                        context -> ContextPatch.builder().put(OFFER, "gold").build(),
                         StageOptions.defaults().withCondition(context -> false))
                 .stage("announce", needs(OFFER), StageOptions.defaults().skipIfInputsMissing())
                 .stage("audit", needs(OFFER))
@@ -121,7 +136,8 @@ class ConditionalStagesTest {
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
-        assertThat(result.stages()).extracting("status")
+        assertThat(result.stages())
+                .extracting("status")
                 .containsExactly(StageStatus.SKIPPED, StageStatus.SKIPPED, StageStatus.BLOCKED);
         assertThat(result.isSuccessful()).isFalse();
     }
@@ -136,7 +152,9 @@ class ConditionalStagesTest {
                         siblingRuns.incrementAndGet();
                         return ContextPatch.empty();
                     });
-                    parallel.stage("guarded", context -> ContextPatch.empty(),
+                    parallel.stage(
+                            "guarded",
+                            context -> ContextPatch.empty(),
                             StageOptions.defaults().withCondition(context -> {
                                 throw broken;
                             }));
@@ -148,8 +166,7 @@ class ConditionalStagesTest {
 
         assertThat(result.status()).isEqualTo(PipelineStatus.FAILED);
         assertThat(result.failure()).containsSame(broken);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.CANCELLED, StageStatus.FAILED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.CANCELLED, StageStatus.FAILED);
         assertThat(siblingRuns).hasValue(0);
     }
 
@@ -158,7 +175,9 @@ class ConditionalStagesTest {
         Pipeline pipeline = new DefaultPipelineBuilder()
                 .parallel("layer", parallel -> {
                     parallel.stage("sibling", context -> ContextPatch.empty());
-                    parallel.stage("guarded", context -> ContextPatch.empty(),
+                    parallel.stage(
+                            "guarded",
+                            context -> ContextPatch.empty(),
                             StageOptions.defaults()
                                     .withFailurePolicy(FailurePolicy.CONTINUE)
                                     .withCondition(context -> {
@@ -170,18 +189,22 @@ class ConditionalStagesTest {
         PipelineResult result = pipeline.run(ContextView.empty());
 
         assertThat(result.status()).isEqualTo(PipelineStatus.COMPLETED);
-        assertThat(result.stages()).extracting("status")
-                .containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
+        assertThat(result.stages()).extracting("status").containsExactly(StageStatus.SUCCEEDED, StageStatus.FAILED);
     }
 
     @Test
     void fallbackRecoversAThrowingCondition() throws Exception {
         Pipeline pipeline = new DefaultPipelineBuilder()
-                .stage("guarded", context -> ContextPatch.empty(), StageOptions.defaults()
-                        .withCondition(context -> {
-                            throw new IllegalStateException("condition broke");
-                        })
-                        .withFallback((context, failure) -> ContextPatch.builder().put(OFFER, "none").build()))
+                .stage(
+                        "guarded",
+                        context -> ContextPatch.empty(),
+                        StageOptions.defaults()
+                                .withCondition(context -> {
+                                    throw new IllegalStateException("condition broke");
+                                })
+                                .withFallback((context, failure) -> ContextPatch.builder()
+                                        .put(OFFER, "none")
+                                        .build()))
                 .build();
 
         PipelineResult result = pipeline.run(ContextView.empty());
@@ -215,16 +238,18 @@ class ConditionalStagesTest {
     @Test
     void skippedChildStagesKeepANestedRunSuccessful() throws Exception {
         Pipeline child = new DefaultPipelineBuilder()
-                .stage("optional", context -> ContextPatch.empty(),
+                .stage(
+                        "optional",
+                        context -> ContextPatch.empty(),
                         StageOptions.defaults().withCondition(context -> false))
                 .build();
-        Pipeline parent = new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
+        Pipeline parent =
+                new DefaultPipelineBuilder().stage("nested", child.asStage()).build();
 
         PipelineResult result = parent.run(ContextView.empty());
 
         assertThat(result.isSuccessful()).isTrue();
-        assertThat(result.stages().getFirst().children()).extracting("status")
-                .containsExactly(StageStatus.SKIPPED);
+        assertThat(result.stages().getFirst().children()).extracting("status").containsExactly(StageStatus.SKIPPED);
     }
 
     private static Stage needs(ContextKey<?> key) {

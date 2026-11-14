@@ -5,8 +5,7 @@ package dev.baton.api;
  * the same key name, or a key name was written with a type different from the
  * one the context already holds.
  */
-public final class ContextMergeException
-        extends RuntimeException {
+public final class ContextMergeException extends RuntimeException {
 
     /**
      * Creates the exception.

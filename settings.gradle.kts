@@ -15,6 +15,7 @@ dependencyResolutionManagement {
 rootProject.name = "baton"
 
 include(
+    "baton-bom",
     "baton-api",
     "baton-core",
     "baton-testkit",

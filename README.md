@@ -5,12 +5,24 @@ layers: each layer is one sequential stage or a group of parallel stages. Stages
 an immutable context snapshot and return a patch of typed writes, so they never share
 mutable state.
 
-Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
+Status: `0.1.0`, preparing for its first release to Maven Central (see
+[CHANGELOG.md](CHANGELOG.md)). Until then, build from source or run
+`./gradlew publishToMavenLocal`.
+
+```kotlin
+dependencies {
+    implementation(platform("io.github.kairos-tools:baton-bom:0.1.0"))
+    implementation("io.github.kairos-tools:baton-api")
+    runtimeOnly("io.github.kairos-tools:baton-core")
+    testImplementation("io.github.kairos-tools:baton-testkit")
+}
+```
 
 ## Modules
 
 | Module | What it is | Depend on it with |
 |---|---|---|
+| `baton-bom` | Aligns the versions of every module. | `platform(...)` |
 | `baton-api` | The public API (`dev.baton.api`). The only module your code should compile against. | `implementation` |
 | `baton-core` | The runtime. Exports no packages; found at startup through `ServiceLoader`. | `runtimeOnly` |
 | `baton-testkit` | Helpers for testing stages and inspecting results, and a `RecordingListener`. | `testImplementation` |
@@ -292,7 +304,8 @@ System.out.println(PipelineResults.describe(result));
 ## Build and run
 
 ```bash
-./gradlew build                    # compile, test, Javadoc (warnings fail the API build)
+./gradlew build                    # compile, test, Javadoc, and the recorded public API (apiCheck)
+./gradlew apiDump                  # record an intended public API change in api/<module>.api
 ./gradlew :baton-examples:run      # the checkout example, on the module path
 ./gradlew :baton-benchmarks:jmh    # engine benchmarks (~2 minutes)
 ```

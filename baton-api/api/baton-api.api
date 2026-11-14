@@ -1,0 +1,542 @@
+public class dev.baton.api.StageTimeoutException extends java.util.concurrent.TimeoutException {
+  public dev.baton.api.StageTimeoutException(java.lang.String);
+}
+
+public final class dev.baton.api.BatonConfig {
+  public static final int NEVER_FLATTEN;
+  public static final int UNLIMITED;
+  public static final int DEFAULT_EVENT_BUFFER_CAPACITY;
+  public static final java.time.Duration DEFAULT_EVENT_BATCH_INTERVAL;
+  public static final java.lang.String DEFAULT_PIPELINE_NAME;
+  public static dev.baton.api.BatonConfig defaults();
+  public static dev.baton.api.BatonConfig$Builder builder();
+  public dev.baton.api.BatonConfig$Builder toBuilder();
+  public dev.baton.api.BatonConfig merge(dev.baton.api.BatonConfig);
+  public int contextFlattenDepth();
+  public dev.baton.api.LayerConflictPolicy layerConflictPolicy();
+  public dev.baton.api.OverwritePolicy overwritePolicy();
+  public dev.baton.api.TypeClashPolicy typeClashPolicy();
+  public boolean equalValuesConflict();
+  public java.util.concurrent.ThreadFactory threadFactory();
+  public int maxParallelStages();
+  public int maxChildTasks();
+  public dev.baton.api.StageOptions defaultStageOptions();
+  public dev.baton.api.UnjoinedChildFailurePolicy unjoinedChildFailure();
+  public java.util.Optional<java.time.Duration> runTimeout();
+  public int eventBufferCapacity();
+  public java.time.Duration eventBatchInterval();
+  public dev.baton.api.EventOverflowPolicy eventOverflowPolicy();
+  public dev.baton.api.ListenerErrorHandler listenerErrorHandler();
+  public boolean notifyNestedListeners();
+  public java.time.Clock clock();
+  public java.util.List<dev.baton.api.propagation.ContextPropagator<?>> contextPropagators();
+  public java.lang.String defaultPipelineName();
+}
+
+public final class dev.baton.api.BatonConfig$Builder {
+  public dev.baton.api.BatonConfig$Builder contextFlattenDepth(int);
+  public dev.baton.api.BatonConfig$Builder layerConflictPolicy(dev.baton.api.LayerConflictPolicy);
+  public dev.baton.api.BatonConfig$Builder overwritePolicy(dev.baton.api.OverwritePolicy);
+  public dev.baton.api.BatonConfig$Builder typeClashPolicy(dev.baton.api.TypeClashPolicy);
+  public dev.baton.api.BatonConfig$Builder equalValuesConflict(boolean);
+  public dev.baton.api.BatonConfig$Builder threadFactory(java.util.concurrent.ThreadFactory);
+  public dev.baton.api.BatonConfig$Builder maxParallelStages(int);
+  public dev.baton.api.BatonConfig$Builder maxChildTasks(int);
+  public dev.baton.api.BatonConfig$Builder defaultStageOptions(dev.baton.api.StageOptions);
+  public dev.baton.api.BatonConfig$Builder unjoinedChildFailure(dev.baton.api.UnjoinedChildFailurePolicy);
+  public dev.baton.api.BatonConfig$Builder runTimeout(java.time.Duration);
+  public dev.baton.api.BatonConfig$Builder eventBufferCapacity(int);
+  public dev.baton.api.BatonConfig$Builder eventBatchInterval(java.time.Duration);
+  public dev.baton.api.BatonConfig$Builder eventOverflowPolicy(dev.baton.api.EventOverflowPolicy);
+  public dev.baton.api.BatonConfig$Builder listenerErrorHandler(dev.baton.api.ListenerErrorHandler);
+  public dev.baton.api.BatonConfig$Builder notifyNestedListeners(boolean);
+  public dev.baton.api.BatonConfig$Builder clock(java.time.Clock);
+  public dev.baton.api.BatonConfig$Builder defaultPipelineName(java.lang.String);
+  public dev.baton.api.BatonConfig$Builder contextPropagator(dev.baton.api.propagation.ContextPropagator<?>);
+  public dev.baton.api.BatonConfig build();
+}
+
+public final class dev.baton.api.ContextKey<T> {
+  public static <T> dev.baton.api.ContextKey<T> of(java.lang.String, java.lang.Class<T>);
+  public java.lang.String name();
+  public java.lang.Class<T> type();
+  public boolean equals(java.lang.Object);
+  public int hashCode();
+  public java.lang.String toString();
+}
+
+public final class dev.baton.api.ContextMergeException extends java.lang.RuntimeException {
+  public dev.baton.api.ContextMergeException(java.lang.String);
+}
+
+public final class dev.baton.api.ContextPatch {
+  public static dev.baton.api.ContextPatch empty();
+  public static dev.baton.api.ContextPatch$Builder builder();
+  public boolean isEmpty();
+  public java.util.Set<dev.baton.api.ContextKey<?>> writtenKeys();
+  public <T> java.util.Optional<T> find(dev.baton.api.ContextKey<T>);
+  public dev.baton.api.ContextView applyTo(dev.baton.api.ContextView);
+  public dev.baton.api.ContextView applyTo(dev.baton.api.ContextView, dev.baton.api.BatonConfig);
+  public static dev.baton.api.ContextPatch merge(java.util.Collection<dev.baton.api.ContextPatch>);
+  public static dev.baton.api.ContextPatch diff(dev.baton.api.ContextView, dev.baton.api.ContextView);
+}
+
+public final class dev.baton.api.ContextPatch$Builder {
+  public <T> dev.baton.api.ContextPatch$Builder put(dev.baton.api.ContextKey<T>, T);
+  public dev.baton.api.ContextPatch build();
+}
+
+public final class dev.baton.api.EventOverflowPolicy extends java.lang.Enum<dev.baton.api.EventOverflowPolicy> {
+  public static final dev.baton.api.EventOverflowPolicy DROP_NEWEST;
+  public static final dev.baton.api.EventOverflowPolicy DROP_OLDEST;
+  public static dev.baton.api.EventOverflowPolicy[] values();
+  public static dev.baton.api.EventOverflowPolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.FailurePolicy extends java.lang.Enum<dev.baton.api.FailurePolicy> {
+  public static final dev.baton.api.FailurePolicy FAIL_FAST;
+  public static final dev.baton.api.FailurePolicy CONTINUE;
+  public static dev.baton.api.FailurePolicy[] values();
+  public static dev.baton.api.FailurePolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.KeyConflict extends java.lang.Record {
+  public dev.baton.api.KeyConflict(dev.baton.api.KeyConflict$Kind, java.lang.String, java.util.List<dev.baton.api.event.StagePath>, dev.baton.api.KeyConflict$Resolution);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public dev.baton.api.KeyConflict$Kind kind();
+  public java.lang.String key();
+  public java.util.List<dev.baton.api.event.StagePath> stages();
+  public dev.baton.api.KeyConflict$Resolution resolution();
+}
+
+public final class dev.baton.api.KeyConflict$Kind extends java.lang.Enum<dev.baton.api.KeyConflict$Kind> {
+  public static final dev.baton.api.KeyConflict$Kind SAME_LAYER;
+  public static final dev.baton.api.KeyConflict$Kind OVERWRITE;
+  public static final dev.baton.api.KeyConflict$Kind TYPE_CLASH;
+  public static dev.baton.api.KeyConflict$Kind[] values();
+  public static dev.baton.api.KeyConflict$Kind valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.KeyConflict$Resolution extends java.lang.Enum<dev.baton.api.KeyConflict$Resolution> {
+  public static final dev.baton.api.KeyConflict$Resolution FAILED;
+  public static final dev.baton.api.KeyConflict$Resolution FIRST_WINS;
+  public static final dev.baton.api.KeyConflict$Resolution LAST_WINS;
+  public static final dev.baton.api.KeyConflict$Resolution KEY_SKIPPED;
+  public static final dev.baton.api.KeyConflict$Resolution KEPT_EXISTING;
+  public static final dev.baton.api.KeyConflict$Resolution REPLACED;
+  public static dev.baton.api.KeyConflict$Resolution[] values();
+  public static dev.baton.api.KeyConflict$Resolution valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.LayerConflictPolicy extends java.lang.Enum<dev.baton.api.LayerConflictPolicy> {
+  public static final dev.baton.api.LayerConflictPolicy FAIL;
+  public static final dev.baton.api.LayerConflictPolicy FIRST_WINS;
+  public static final dev.baton.api.LayerConflictPolicy LAST_WINS;
+  public static final dev.baton.api.LayerConflictPolicy SKIP_KEY;
+  public static dev.baton.api.LayerConflictPolicy[] values();
+  public static dev.baton.api.LayerConflictPolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.NestedPipelineStage implements dev.baton.api.Stage {
+  public dev.baton.api.Pipeline pipeline();
+  public dev.baton.api.ContextPatch execute(dev.baton.api.StageContext) throws java.lang.Exception;
+}
+
+public final class dev.baton.api.OverwritePolicy extends java.lang.Enum<dev.baton.api.OverwritePolicy> {
+  public static final dev.baton.api.OverwritePolicy OVERRIDE;
+  public static final dev.baton.api.OverwritePolicy KEEP_EXISTING;
+  public static final dev.baton.api.OverwritePolicy FAIL;
+  public static dev.baton.api.OverwritePolicy[] values();
+  public static dev.baton.api.OverwritePolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.PipelineExecutionException extends java.lang.Exception {
+  public dev.baton.api.PipelineExecutionException(dev.baton.api.PipelineResult);
+  public dev.baton.api.PipelineResult result();
+}
+
+public final class dev.baton.api.PipelineRunStatus extends java.lang.Enum<dev.baton.api.PipelineRunStatus> {
+  public static final dev.baton.api.PipelineRunStatus CREATED;
+  public static final dev.baton.api.PipelineRunStatus RUNNING;
+  public static final dev.baton.api.PipelineRunStatus COMPLETED;
+  public static final dev.baton.api.PipelineRunStatus FAILED;
+  public static final dev.baton.api.PipelineRunStatus TIMED_OUT;
+  public static final dev.baton.api.PipelineRunStatus CANCELLED;
+  public static dev.baton.api.PipelineRunStatus[] values();
+  public static dev.baton.api.PipelineRunStatus valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.PipelineStatus extends java.lang.Enum<dev.baton.api.PipelineStatus> {
+  public static final dev.baton.api.PipelineStatus COMPLETED;
+  public static final dev.baton.api.PipelineStatus FAILED;
+  public static final dev.baton.api.PipelineStatus TIMED_OUT;
+  public static final dev.baton.api.PipelineStatus CANCELLED;
+  public static dev.baton.api.PipelineStatus[] values();
+  public static dev.baton.api.PipelineStatus valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.RetryPolicy {
+  public static dev.baton.api.RetryPolicy none();
+  public static dev.baton.api.RetryPolicy maxAttempts(int);
+  public dev.baton.api.RetryPolicy withBackoff(java.time.Duration, double, java.time.Duration);
+  public dev.baton.api.RetryPolicy withFixedDelay(java.time.Duration);
+  public dev.baton.api.RetryPolicy withJitter(double);
+  public dev.baton.api.RetryPolicy withAttemptTimeout(java.time.Duration);
+  public dev.baton.api.RetryPolicy retryOn(java.util.function.Predicate<java.lang.Throwable>);
+  public int maxAttempts();
+  public java.util.Optional<java.time.Duration> attemptTimeout();
+  public boolean shouldRetry(int, java.lang.Throwable);
+  public java.time.Duration delayAfter(int);
+}
+
+public final class dev.baton.api.RunOptions {
+  public static final int DEFAULT_EVENT_BUFFER_CAPACITY;
+  public static dev.baton.api.RunOptions defaults();
+  public dev.baton.api.RunOptions withListener(dev.baton.api.event.PipelineListener);
+  public dev.baton.api.RunOptions withConfig(dev.baton.api.BatonConfig);
+  public dev.baton.api.RunOptions withEventBufferCapacity(int);
+  public dev.baton.api.RunOptions withTimeout(java.time.Duration);
+  public java.util.Optional<java.time.Duration> timeout();
+  public java.util.List<dev.baton.api.event.PipelineListener> listeners();
+  public int eventBufferCapacity();
+  public dev.baton.api.BatonConfig config();
+}
+
+public final class dev.baton.api.StageAttemptTimeoutException extends dev.baton.api.StageTimeoutException {
+  public dev.baton.api.StageAttemptTimeoutException(java.lang.String);
+}
+
+public final class dev.baton.api.StageOptions {
+  public static dev.baton.api.StageOptions defaults();
+  public dev.baton.api.StageOptions withTimeout(java.time.Duration);
+  public dev.baton.api.StageOptions withFailurePolicy(dev.baton.api.FailurePolicy);
+  public dev.baton.api.StageOptions withRetry(dev.baton.api.RetryPolicy);
+  public dev.baton.api.StageOptions withFallback(dev.baton.api.StageFallback);
+  public dev.baton.api.StageOptions withCondition(java.util.function.Predicate<dev.baton.api.ContextView>);
+  public dev.baton.api.StageOptions skipIfInputsMissing();
+  public java.util.Optional<java.time.Duration> timeout();
+  public dev.baton.api.FailurePolicy failurePolicy();
+  public dev.baton.api.RetryPolicy retry();
+  public dev.baton.api.StageOptions withOverwritePolicy(dev.baton.api.OverwritePolicy);
+  public java.util.Optional<dev.baton.api.OverwritePolicy> overwritePolicy();
+  public java.util.Optional<java.util.function.Predicate<dev.baton.api.ContextView>> condition();
+  public boolean skipsIfInputsMissing();
+  public java.util.Optional<dev.baton.api.StageFallback> fallback();
+}
+
+public final class dev.baton.api.StageStatus extends java.lang.Enum<dev.baton.api.StageStatus> {
+  public static final dev.baton.api.StageStatus SUCCEEDED;
+  public static final dev.baton.api.StageStatus FAILED;
+  public static final dev.baton.api.StageStatus RECOVERED;
+  public static final dev.baton.api.StageStatus TIMED_OUT;
+  public static final dev.baton.api.StageStatus BLOCKED;
+  public static final dev.baton.api.StageStatus SKIPPED;
+  public static final dev.baton.api.StageStatus CANCELLED;
+  public static dev.baton.api.StageStatus[] values();
+  public static dev.baton.api.StageStatus valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.TypeClashPolicy extends java.lang.Enum<dev.baton.api.TypeClashPolicy> {
+  public static final dev.baton.api.TypeClashPolicy FAIL;
+  public static final dev.baton.api.TypeClashPolicy REPLACE;
+  public static dev.baton.api.TypeClashPolicy[] values();
+  public static dev.baton.api.TypeClashPolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.UnjoinedChildFailurePolicy extends java.lang.Enum<dev.baton.api.UnjoinedChildFailurePolicy> {
+  public static final dev.baton.api.UnjoinedChildFailurePolicy FAIL_STAGE;
+  public static final dev.baton.api.UnjoinedChildFailurePolicy IGNORE;
+  public static dev.baton.api.UnjoinedChildFailurePolicy[] values();
+  public static dev.baton.api.UnjoinedChildFailurePolicy valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.WorkerTermination extends java.lang.Enum<dev.baton.api.WorkerTermination> {
+  public static final dev.baton.api.WorkerTermination NOT_STARTED;
+  public static final dev.baton.api.WorkerTermination TERMINATED;
+  public static final dev.baton.api.WorkerTermination UNCONFIRMED;
+  public static dev.baton.api.WorkerTermination[] values();
+  public static dev.baton.api.WorkerTermination valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.description.LayerDescription extends java.lang.Record {
+  public dev.baton.api.description.LayerDescription(java.lang.String, dev.baton.api.description.LayerDescription$Kind, java.util.List<dev.baton.api.description.StageDescription>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String id();
+  public dev.baton.api.description.LayerDescription$Kind kind();
+  public java.util.List<dev.baton.api.description.StageDescription> stages();
+}
+
+public final class dev.baton.api.description.LayerDescription$Kind extends java.lang.Enum<dev.baton.api.description.LayerDescription$Kind> {
+  public static final dev.baton.api.description.LayerDescription$Kind SEQUENTIAL;
+  public static final dev.baton.api.description.LayerDescription$Kind PARALLEL;
+  public static dev.baton.api.description.LayerDescription$Kind[] values();
+  public static dev.baton.api.description.LayerDescription$Kind valueOf(java.lang.String);
+}
+
+public final class dev.baton.api.description.PipelineDescription extends java.lang.Record {
+  public dev.baton.api.description.PipelineDescription(java.lang.String, java.util.List<dev.baton.api.description.LayerDescription>, dev.baton.api.BatonConfig);
+  public java.util.List<dev.baton.api.description.StageDescription> stages();
+  public java.util.Optional<dev.baton.api.description.StageDescription> stage(java.lang.String);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String name();
+  public java.util.List<dev.baton.api.description.LayerDescription> layers();
+  public dev.baton.api.BatonConfig config();
+}
+
+public final class dev.baton.api.description.StageDescription extends java.lang.Record {
+  public dev.baton.api.description.StageDescription(java.lang.String, java.lang.String, dev.baton.api.StageOptions, java.util.Set<dev.baton.api.ContextKey<?>>, java.util.Optional<dev.baton.api.description.PipelineDescription>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String id();
+  public java.lang.String stageType();
+  public dev.baton.api.StageOptions options();
+  public java.util.Set<dev.baton.api.ContextKey<?>> requiredReads();
+  public java.util.Optional<dev.baton.api.description.PipelineDescription> nested();
+}
+
+public final class dev.baton.api.event.ContextConflict extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.ContextConflict(java.util.UUID, java.lang.String, dev.baton.api.KeyConflict, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public dev.baton.api.KeyConflict conflict();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.event.RunFinished extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.RunFinished(java.util.UUID, java.lang.String, dev.baton.api.PipelineStatus, java.time.Duration, java.util.Optional<java.lang.Throwable>, long, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public dev.baton.api.PipelineStatus status();
+  public java.time.Duration duration();
+  public java.util.Optional<java.lang.Throwable> failure();
+  public long droppedEvents();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.event.RunStarted extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.RunStarted(java.util.UUID, java.lang.String, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.event.StageFinished extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.StageFinished(java.util.UUID, java.lang.String, dev.baton.api.event.StagePath, dev.baton.api.StageStatus, java.time.Duration, java.util.Optional<java.lang.Throwable>, int, dev.baton.api.WorkerTermination, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public dev.baton.api.event.StagePath path();
+  public dev.baton.api.StageStatus status();
+  public java.time.Duration duration();
+  public java.util.Optional<java.lang.Throwable> failure();
+  public int attempts();
+  public dev.baton.api.WorkerTermination workerTermination();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.event.StagePath extends java.lang.Record {
+  public dev.baton.api.event.StagePath(java.util.List<java.lang.String>);
+  public static dev.baton.api.event.StagePath of(java.lang.String...);
+  public java.lang.String stageId();
+  public int depth();
+  public dev.baton.api.event.StagePath child(java.lang.String);
+  public java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.List<java.lang.String> segments();
+}
+
+public final class dev.baton.api.event.StageRetrying extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.StageRetrying(java.util.UUID, java.lang.String, dev.baton.api.event.StagePath, int, java.lang.Throwable, java.time.Duration, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public dev.baton.api.event.StagePath path();
+  public int failedAttempt();
+  public java.lang.Throwable failure();
+  public java.time.Duration delay();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.event.StageStarted extends java.lang.Record implements dev.baton.api.event.PipelineEvent {
+  public dev.baton.api.event.StageStarted(java.util.UUID, java.lang.String, dev.baton.api.event.StagePath, java.time.Instant);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public dev.baton.api.event.StagePath path();
+  public java.time.Instant timestamp();
+}
+
+public final class dev.baton.api.propagation.BatonContext {
+  public static final dev.baton.api.propagation.ContextPropagator<java.lang.Void> PROPAGATOR;
+  public static java.util.Optional<dev.baton.api.propagation.ExecutionScope> current();
+}
+
+public final class dev.baton.api.propagation.ExecutionScope extends java.lang.Record {
+  public dev.baton.api.propagation.ExecutionScope(java.util.UUID, java.lang.String, java.util.Optional<dev.baton.api.event.StagePath>, dev.baton.api.propagation.ExecutionScope$Kind);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.UUID runId();
+  public java.lang.String pipelineName();
+  public java.util.Optional<dev.baton.api.event.StagePath> stage();
+  public dev.baton.api.propagation.ExecutionScope$Kind kind();
+}
+
+public final class dev.baton.api.propagation.ExecutionScope$Kind extends java.lang.Enum<dev.baton.api.propagation.ExecutionScope$Kind> {
+  public static final dev.baton.api.propagation.ExecutionScope$Kind RUN;
+  public static final dev.baton.api.propagation.ExecutionScope$Kind STAGE;
+  public static final dev.baton.api.propagation.ExecutionScope$Kind ATTEMPT;
+  public static final dev.baton.api.propagation.ExecutionScope$Kind CHILD_TASK;
+  public static final dev.baton.api.propagation.ExecutionScope$Kind CONDITION;
+  public static final dev.baton.api.propagation.ExecutionScope$Kind FALLBACK;
+  public static dev.baton.api.propagation.ExecutionScope$Kind[] values();
+  public static dev.baton.api.propagation.ExecutionScope$Kind valueOf(java.lang.String);
+}
+
+public interface dev.baton.api.ContextView {
+  public abstract <T> T get(dev.baton.api.ContextKey<T>);
+  public abstract <T> java.util.Optional<T> find(dev.baton.api.ContextKey<T>);
+  public abstract boolean contains(dev.baton.api.ContextKey<?>);
+  public abstract java.util.Set<dev.baton.api.ContextKey<?>> keys();
+  public default java.util.Optional<dev.baton.api.ContextKey<?>> keyNamed(java.lang.String);
+  public static dev.baton.api.ContextView empty();
+  public static dev.baton.api.ContextView$Builder builder();
+  public default <T> T require(dev.baton.api.ContextKey<T>);
+}
+
+public interface dev.baton.api.ContextView$Builder {
+  public abstract <T> dev.baton.api.ContextView$Builder put(dev.baton.api.ContextKey<T>, T);
+  public abstract dev.baton.api.ContextView build();
+}
+
+public interface dev.baton.api.ListenerErrorHandler {
+  public abstract void onListenerError(dev.baton.api.event.PipelineListener, dev.baton.api.event.PipelineEvent, java.lang.Throwable);
+  public static dev.baton.api.ListenerErrorHandler logging();
+}
+
+public interface dev.baton.api.Pipeline {
+  public default dev.baton.api.PipelineResult run(dev.baton.api.ContextView) throws java.lang.InterruptedException;
+  public abstract dev.baton.api.PipelineResult run(dev.baton.api.ContextView, dev.baton.api.RunOptions) throws java.lang.InterruptedException;
+  public default dev.baton.api.PipelineRun start(dev.baton.api.ContextView);
+  public abstract dev.baton.api.PipelineRun start(dev.baton.api.ContextView, dev.baton.api.RunOptions);
+  public default dev.baton.api.Stage asStage();
+  public default dev.baton.api.description.PipelineDescription describe();
+  public static dev.baton.api.Pipeline$Builder builder();
+  public static dev.baton.api.Pipeline$Builder builder(dev.baton.api.BatonConfig);
+}
+
+public interface dev.baton.api.Pipeline$Builder {
+  public abstract dev.baton.api.Pipeline$Builder name(java.lang.String);
+  public abstract dev.baton.api.Pipeline$Builder config(dev.baton.api.BatonConfig);
+  public abstract dev.baton.api.Pipeline$Builder listener(dev.baton.api.event.PipelineListener);
+  public abstract dev.baton.api.Pipeline$Builder timeout(java.time.Duration);
+  public abstract dev.baton.api.Pipeline$Builder stage(java.lang.String, dev.baton.api.Stage);
+  public abstract dev.baton.api.Pipeline$Builder stage(java.lang.String, dev.baton.api.Stage, dev.baton.api.StageOptions);
+  public abstract dev.baton.api.Pipeline$Builder parallel(java.lang.String, java.util.function.Consumer<dev.baton.api.Pipeline$ParallelBuilder>);
+  public abstract dev.baton.api.Pipeline build();
+}
+
+public interface dev.baton.api.Pipeline$ParallelBuilder {
+  public abstract dev.baton.api.Pipeline$ParallelBuilder stage(java.lang.String, dev.baton.api.Stage);
+  public abstract dev.baton.api.Pipeline$ParallelBuilder stage(java.lang.String, dev.baton.api.Stage, dev.baton.api.StageOptions);
+}
+
+public interface dev.baton.api.PipelineProvider {
+  public abstract dev.baton.api.Pipeline$Builder builder();
+  public static dev.baton.api.PipelineProvider load();
+}
+
+public interface dev.baton.api.PipelineResult {
+  public abstract dev.baton.api.PipelineStatus status();
+  public abstract dev.baton.api.ContextView context();
+  public abstract java.util.List<dev.baton.api.StageResult> stages();
+  public abstract boolean isSuccessful();
+  public abstract boolean hasFailures();
+  public default java.util.List<dev.baton.api.KeyConflict> conflicts();
+  public abstract java.util.Optional<java.lang.Throwable> failure();
+}
+
+public interface dev.baton.api.PipelineRun {
+  public abstract dev.baton.api.PipelineResult await() throws java.lang.InterruptedException;
+  public abstract boolean cancel();
+  public abstract boolean isDone();
+  public abstract dev.baton.api.PipelineRunStatus status();
+}
+
+public interface dev.baton.api.Stage {
+  public abstract dev.baton.api.ContextPatch execute(dev.baton.api.StageContext) throws java.lang.Exception;
+  public default java.util.Set<dev.baton.api.ContextKey<?>> requiredReads();
+}
+
+public interface dev.baton.api.StageContext {
+  public abstract dev.baton.api.ContextView context();
+  public abstract dev.baton.api.StageTasks tasks();
+}
+
+public interface dev.baton.api.StageFallback {
+  public abstract dev.baton.api.ContextPatch recover(dev.baton.api.ContextView, java.lang.Throwable) throws java.lang.Exception;
+}
+
+public interface dev.baton.api.StageResult {
+  public abstract java.lang.String stageId();
+  public abstract dev.baton.api.StageStatus status();
+  public abstract java.time.Duration duration();
+  public abstract java.util.Optional<java.lang.Throwable> failure();
+  public abstract java.util.Optional<dev.baton.api.ContextPatch> output();
+  public default int attempts();
+  public abstract dev.baton.api.WorkerTermination workerTermination();
+  public default java.util.List<dev.baton.api.StageResult> children();
+}
+
+public interface dev.baton.api.StageTasks {
+  public abstract <T> dev.baton.api.TaskHandle<T> fork(java.util.concurrent.Callable<T>);
+}
+
+public interface dev.baton.api.TaskHandle<T> {
+  public abstract T join() throws java.lang.Exception;
+  public abstract boolean isDone();
+}
+
+public interface dev.baton.api.event.PipelineEvent {
+  public abstract java.util.UUID runId();
+  public abstract java.lang.String pipelineName();
+  public abstract java.time.Instant timestamp();
+}
+
+public interface dev.baton.api.event.PipelineListener {
+  public abstract void onEvent(dev.baton.api.event.PipelineEvent);
+}
+
+public interface dev.baton.api.propagation.ContextPropagator<T> {
+  public abstract T capture();
+  public abstract dev.baton.api.propagation.Restoration restore(T, dev.baton.api.propagation.ExecutionScope);
+}
+
+public interface dev.baton.api.propagation.Restoration extends java.lang.AutoCloseable {
+  public static final dev.baton.api.propagation.Restoration NONE;
+  public default void failed(java.lang.Throwable);
+  public abstract void close();
+}

@@ -1,0 +1,24 @@
+public final class dev.baton.opentelemetry.OpenTelemetryContextPropagator implements dev.baton.api.propagation.ContextPropagator<io.opentelemetry.context.Context> {
+  public dev.baton.opentelemetry.OpenTelemetryContextPropagator(io.opentelemetry.api.OpenTelemetry);
+  public io.opentelemetry.context.Context capture();
+  public dev.baton.api.propagation.Restoration restore(io.opentelemetry.context.Context, dev.baton.api.propagation.ExecutionScope);
+  public dev.baton.api.propagation.Restoration restore(java.lang.Object, dev.baton.api.propagation.ExecutionScope);
+  public java.lang.Object capture();
+}
+
+public final class dev.baton.opentelemetry.OpenTelemetryPipelineListener implements dev.baton.api.event.PipelineListener {
+  public static final java.lang.String INSTRUMENTATION_NAME;
+  public static final java.lang.String PIPELINE_NAME;
+  public static final java.lang.String RUN_ID;
+  public static final java.lang.String RUN_STATUS;
+  public static final java.lang.String STAGE_PATH;
+  public static final java.lang.String STAGE_STATUS;
+  public static final java.lang.String STAGE_ATTEMPTS;
+  public static final java.lang.String CONFLICT_EVENT;
+  public static final java.lang.String RETRY_EVENT;
+  public static final java.lang.String WORKER_TERMINATION;
+  public static final java.lang.String DROPPED_EVENTS;
+  public dev.baton.opentelemetry.OpenTelemetryPipelineListener(io.opentelemetry.api.OpenTelemetry);
+  public static dev.baton.opentelemetry.OpenTelemetryPipelineListener forCurrentContext(io.opentelemetry.api.OpenTelemetry);
+  public void onEvent(dev.baton.api.event.PipelineEvent);
+}

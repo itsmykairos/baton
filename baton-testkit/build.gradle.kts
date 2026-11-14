@@ -2,9 +2,6 @@ plugins {
     `java-library`
 }
 
-java {
-    withJavadocJar()
-}
 
 dependencies {
     api(project(":baton-api"))

@@ -2,9 +2,6 @@ plugins {
     `java-library`
 }
 
-java {
-    withJavadocJar()
-}
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"

@@ -19,6 +19,8 @@ Gradle 9 wrapper, Java 21 toolchain. Configuration cache and build cache are on.
 ./gradlew :baton-core:test --tests '*NestedPipelineTest'                                # one class
 ./gradlew :baton-core:test --tests '*NestedPipelineTest.childInheritsNestedStageDeadline'  # one method
 ./gradlew test --rerun-tasks -q                   # force a rerun; the build cache otherwise skips unchanged tests
+./gradlew apiDump                                 # after an intended public API change: rewrite api/<module>.api
+./gradlew publishToMavenLocal                     # inspect what would be published (signing only with a key)
 ./gradlew :baton-examples:run --args=--mermaid    # plain example; prints a Mermaid diagram of its run
 ./gradlew :baton-examples-spring:run              # Spring Boot web example on http://localhost:8080
 ./gradlew :baton-benchmarks:jmh -Pjmh="sequential200 -prof gc"   # JMH; -Pjmh passes a filter and JMH options
@@ -144,6 +146,21 @@ Separates the **logical outcome** from **physical worker exit** (`WorkerLifecycl
     validating them at startup with property paths in the errors.
   - `BatonEndpoint` provides `/actuator/baton`. The starter compiles with `-parameters`,
     which Actuator's `@Selector` mapping needs.
+
+## Build and release
+
+- The root `build.gradle.kts` holds the conventions:
+  - the `published` module map with POM descriptions, used by `com.vanniktech.maven.publish`
+    to publish to the Maven Central Portal;
+  - the `ApiDump` and `ApiCheck` tasks, which run `javap -public` over each published
+    module except core and the BOM.
+- `apiCheck` is part of `check`, so `build` fails on any unrecorded public API change.
+  Run `apiDump` and commit the `.api` file when the change is intended.
+- Coordinates are `io.github.kairos-tools:<module>`, with `group` and `version` in
+  `gradle.properties`. Java packages stay `dev.baton.*`.
+- CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. Releases are
+  manual (`release.yml`, then Publish in the Central Portal). `docs/releasing.md` has the
+  steps, and `CHANGELOG.md` records user-visible changes.
 
 ## Rules for this repository
 

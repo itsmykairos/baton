@@ -16,14 +16,20 @@ public interface StageResult {
     /** {@return how long the stage ran until its logical outcome; zero if it never started} */
     Duration duration();
 
-    /** {@return the failure for FAILED, TIMED_OUT and CANCELLED stages} */
+    /** {@return the failure for FAILED, TIMED_OUT and CANCELLED stages, and the recovered failure for RECOVERED} */
     Optional<Throwable> failure();
 
     /**
      * {@return the stage's patch when it returned one: always for SUCCEEDED, and for
-     * a stage FAILED by a context merge conflict (not applied)}
+     * a stage FAILED by a context merge conflict (not applied); for RECOVERED, the
+     * fallback's patch}
      */
     Optional<ContextPatch> output();
+
+    /** {@return how many attempts were started; 0 if the stage never started} */
+    default int attempts() {
+        return 1;
+    }
 
     /** {@return what is known about the stage worker's physical exit} */
     WorkerTermination workerTermination();

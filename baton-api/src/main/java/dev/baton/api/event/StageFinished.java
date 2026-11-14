@@ -18,6 +18,7 @@ import java.util.UUID;
  * @param status the stage outcome
  * @param duration how long the stage ran; zero if it never started
  * @param failure the failure for FAILED, TIMED_OUT and CANCELLED stages
+ * @param attempts how many attempts were started; 0 if the stage never started
  * @param workerTermination what is known about the worker's physical exit
  * @param timestamp when the outcome was reached
  */
@@ -28,6 +29,7 @@ public record StageFinished(
         StageStatus status,
         Duration duration,
         Optional<Throwable> failure,
+        int attempts,
         WorkerTermination workerTermination,
         Instant timestamp
 ) implements PipelineEvent {

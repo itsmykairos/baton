@@ -235,6 +235,8 @@ class PipelineEventsTest {
         return switch (event) {
             case RunStarted ignored -> "RunStarted";
             case StageStarted started -> "StageStarted " + started.path();
+            case dev.baton.api.event.StageRetrying retrying ->
+                    "StageRetrying " + retrying.path() + " #" + retrying.failedAttempt();
             case StageFinished finished -> "StageFinished " + finished.path() + " " + finished.status();
             case RunFinished finished -> "RunFinished " + finished.status();
         };

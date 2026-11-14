@@ -6,6 +6,7 @@ import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
+import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StagePath;
 import dev.baton.api.event.StageStarted;
 import io.opentelemetry.api.OpenTelemetry;
@@ -29,8 +30,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * carried by the events, so asynchronous delivery does not distort durations.
  *
  * <p>FAILED and TIMED_OUT stages and runs get status {@link StatusCode#ERROR} and a
- * recorded exception. Attributes: {@value #PIPELINE_NAME}, {@value #RUN_ID},
- * {@value #RUN_STATUS}, {@value #STAGE_PATH}, {@value #STAGE_STATUS},
+ * recorded exception. Each retry adds a {@value #RETRY_EVENT} span event with the
+ * failed attempt, its exception and the backoff. Attributes: {@value #PIPELINE_NAME}, {@value #RUN_ID},
+ * {@value #RUN_STATUS}, {@value #STAGE_PATH}, {@value #STAGE_STATUS}, {@value #STAGE_ATTEMPTS},
  * {@value #WORKER_TERMINATION} and {@value #DROPPED_EVENTS}.</p>
  *
  * <p>Register it on the builder to trace every run as its own trace, or create one
@@ -53,6 +55,10 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
     public static final String STAGE_PATH = "baton.stage.path";
     /** Attribute: the stage status. */
     public static final String STAGE_STATUS = "baton.stage.status";
+    /** Attribute: how many attempts the stage started. */
+    public static final String STAGE_ATTEMPTS = "baton.stage.attempts";
+    /** Span event name for a retried attempt. */
+    public static final String RETRY_EVENT = "baton.retry";
     /** Attribute: what is known about the stage worker's exit. */
     public static final String WORKER_TERMINATION = "baton.stage.worker_termination";
     /** Attribute: events dropped because listeners fell behind. */
@@ -63,6 +69,10 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
     private static final AttributeKey<String> RUN_STATUS_KEY = AttributeKey.stringKey(RUN_STATUS);
     private static final AttributeKey<String> STAGE_PATH_KEY = AttributeKey.stringKey(STAGE_PATH);
     private static final AttributeKey<String> STAGE_STATUS_KEY = AttributeKey.stringKey(STAGE_STATUS);
+    private static final AttributeKey<Long> STAGE_ATTEMPTS_KEY = AttributeKey.longKey(STAGE_ATTEMPTS);
+    private static final AttributeKey<Long> FAILED_ATTEMPT_KEY = AttributeKey.longKey("baton.retry.failed_attempt");
+    private static final AttributeKey<Long> DELAY_MS_KEY = AttributeKey.longKey("baton.retry.delay_ms");
+    private static final AttributeKey<String> RETRY_EXCEPTION_KEY = AttributeKey.stringKey("exception.type");
     private static final AttributeKey<String> WORKER_TERMINATION_KEY = AttributeKey.stringKey(WORKER_TERMINATION);
     private static final AttributeKey<Long> DROPPED_EVENTS_KEY = AttributeKey.longKey(DROPPED_EVENTS);
 
@@ -101,6 +111,16 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
             case RunStarted started -> runs.put(started.runId(), new RunSpans(startRun(started)));
             case StageStarted started -> spans(started).stages.put(started.path(),
                     startStage(started.path(), started.pipelineName(), spans(started), started.timestamp()));
+            case StageRetrying retrying -> {
+                Span span = spans(retrying).stages.get(retrying.path());
+                if (span != null) {
+                    span.addEvent(RETRY_EVENT, io.opentelemetry.api.common.Attributes.of(
+                            FAILED_ATTEMPT_KEY, (long) retrying.failedAttempt(),
+                            DELAY_MS_KEY, retrying.delay().toMillis(),
+                            RETRY_EXCEPTION_KEY, retrying.failure().getClass().getName()),
+                            retrying.timestamp());
+                }
+            }
             case StageFinished finished -> finishStage(finished);
             case RunFinished finished -> finishRun(finished);
         }
@@ -147,6 +167,7 @@ public final class OpenTelemetryPipelineListener implements PipelineListener {
         }
         span.setAttribute(STAGE_STATUS_KEY, finished.status().name());
         span.setAttribute(WORKER_TERMINATION_KEY, finished.workerTermination().name());
+        span.setAttribute(STAGE_ATTEMPTS_KEY, (long) finished.attempts());
         if (finished.status() == StageStatus.FAILED || finished.status() == StageStatus.TIMED_OUT) {
             span.setStatus(StatusCode.ERROR, finished.status().name());
             finished.failure().ifPresent(span::recordException);

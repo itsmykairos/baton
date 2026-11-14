@@ -56,4 +56,28 @@ class MicrometerPipelineListenerTest {
                 .tags("pipeline", "checkout").gauge().value()).isZero();
         assertThat(registry.find(MicrometerPipelineListener.DROPPED_EVENTS).counter()).isNull();
     }
+
+    @Test
+    void countsRetries() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RecordingListener done = new RecordingListener();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        Pipeline pipeline = Pipeline.builder()
+                .name("flaky")
+                .listener(new MicrometerPipelineListener(registry))
+                .stage("call", context -> {
+                    if (calls.incrementAndGet() < 3) {
+                        throw new java.io.IOException("down");
+                    }
+                    return ContextPatch.empty();
+                }, StageOptions.defaults().withRetry(dev.baton.api.RetryPolicy.maxAttempts(3)
+                        .withFixedDelay(Duration.ZERO)))
+                .build();
+
+        pipeline.run(ContextView.empty(), RunOptions.defaults().withListener(done));
+        done.awaitRunsFinished(1, Duration.ofSeconds(5));
+
+        assertThat(registry.get(MicrometerPipelineListener.STAGE_RETRIES)
+                .tags("pipeline", "flaky", "stage", "call").counter().count()).isEqualTo(2.0);
+    }
 }

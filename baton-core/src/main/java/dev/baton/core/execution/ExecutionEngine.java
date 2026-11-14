@@ -8,7 +8,10 @@ import dev.baton.api.FailurePolicy;
 import dev.baton.api.NestedPipelineStage;
 import dev.baton.api.PipelineExecutionException;
 import dev.baton.api.PipelineStatus;
+import dev.baton.api.RetryPolicy;
 import dev.baton.api.Stage;
+import dev.baton.api.StageAttemptTimeoutException;
+import dev.baton.api.StageFallback;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
 import dev.baton.api.WorkerTermination;
@@ -37,6 +40,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -70,8 +75,8 @@ final class ExecutionEngine {
     private final Set<ContextKey<?>> writtenKeys = new LinkedHashSet<>();
     private ActiveLayer activeLayer;
 
-    /** Child engines of nested stages, so their results can be reported as children. */
-    private final Map<TrackedTask<?>, ExecutionEngine> childEngines = new ConcurrentHashMap<>();
+    /** Per-stage attempt state, so results can report attempts and nested children. */
+    private final Map<TrackedTask<?>, StageRun> stageRuns = new ConcurrentHashMap<>();
 
     ExecutionEngine(
             PipelineDefinition definition,
@@ -90,6 +95,18 @@ final class ExecutionEngine {
             RunEvents events
     ) {
         this(definition, executor, deadlines, control, Deadline.unlimited(), events, null);
+    }
+
+    /** The outermost engine of a run limited by {@code runDeadline}. */
+    ExecutionEngine(
+            PipelineDefinition definition,
+            ExecutorService executor,
+            DeadlineScheduler deadlines,
+            ExecutionControl control,
+            RunEvents events,
+            Deadline runDeadline
+    ) {
+        this(definition, executor, deadlines, control, runDeadline, events, null);
     }
 
     private ExecutionEngine(
@@ -119,6 +136,9 @@ final class ExecutionEngine {
         try {
             for (LayerDefinition layer : definition.layers()) {
                 control.throwIfCancelled();
+                if (inherited.isExpired()) {
+                    return partialResult(PipelineStatus.TIMED_OUT, deadlineExpired());
+                }
 
                 LayerOutcome layerOutcome = executeLayer(layer, currentContext());
                 MergeOutcome merge = mergeSuccessfulOutputs(layerOutcome.results(), currentContext());
@@ -152,6 +172,12 @@ final class ExecutionEngine {
                 }
                 if (merge.conflict() != null) {
                     return partialResult(PipelineStatus.FAILED, merge.conflict());
+                }
+                // Stages that CONTINUE past a timeout still end the run if the run's
+                // (or nested stage's) own deadline is what expired.
+                if (inherited.isExpired() && merge.results().stream()
+                        .anyMatch(result -> result.status() == StageStatus.TIMED_OUT)) {
+                    return partialResult(PipelineStatus.TIMED_OUT, deadlineExpired());
                 }
             }
 
@@ -266,7 +292,8 @@ final class ExecutionEngine {
             while (pending > 0) {
                 int i = finished.take();
                 pending--;
-                StageResult result = awaitStage(stages.get(i), tasks[i]);
+                StageResult result = withFallback(stages.get(i), context,
+                        awaitStage(stages.get(i), tasks[i]));
                 record(layerResults, i, result);
                 if (trigger == null && stopsPipeline(stages.get(i), result)) {
                     trigger = result;
@@ -317,46 +344,145 @@ final class ExecutionEngine {
                 .map(inherited::min)
                 .orElse(inherited);
 
-        TrackedTask<StageExecution> task;
-        if (node.stage() instanceof NestedPipelineStage nested
-                && nested.pipeline() instanceof DefaultPipeline child) {
-            ExecutionControl childControl = new ExecutionControl();
-            // The child's own listeners are not used: its events go to the outermost run.
-            ExecutionEngine childEngine = new ExecutionEngine(
-                    child.definition(), executor, deadlines, childControl, deadline,
-                    events, pathOf(node.id()));
-            task = TrackedTask.submit(
-                    executor,
-                    deadline,
-                    deadlines,
-                    () -> executeNestedBody(childEngine, context),
-                    childControl::cancel,
-                    registered -> {
-                        childEngines.put(registered, childEngine);
-                        register.accept(registered);
-                    }
-            );
-        } else {
-            DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines);
-            task = TrackedTask.submit(
-                    executor,
-                    deadline,
-                    deadlines,
-                    () -> executeStageBody(node, context, childTasks),
-                    childTasks::close,
-                    register
-            );
-        }
+        StageRun run = new StageRun();
+        TrackedTask<StageExecution> task = TrackedTask.submit(
+                executor,
+                deadline,
+                deadlines,
+                () -> runAttempts(node, context, deadline, run),
+                run.cancel::run,
+                registered -> {
+                    run.self = registered;
+                    stageRuns.put(registered, run);
+                    register.accept(registered);
+                }
+        );
         control.track(task);
         return task;
     }
 
-    private StageExecution executeStageBody(
+    /**
+     * Runs the stage's attempts on its worker. The stage deadline covers every
+     * attempt and backoff wait; a retry is skipped if its backoff cannot finish in
+     * time. Cancellation or expiry interrupts this thread and cancels the current
+     * attempt through {@link StageRun#cancel}.
+     */
+    private StageExecution runAttempts(
+            StageNode node,
+            ContextView context,
+            Deadline stageDeadline,
+            StageRun run
+    ) throws Exception {
+        long started = System.nanoTime();
+        RetryPolicy retry = node.options().retry();
+        for (int attempt = 1; ; attempt++) {
+            control.throwIfCancelled();
+            run.attempts.set(attempt);
+            try {
+                ContextPatch patch = runAttempt(node, context, stageDeadline, retry, attempt, run);
+                return new StageExecution(patch, elapsed(started));
+            } catch (Throwable failure) {
+                if (failure instanceof InterruptedException
+                        || run.isDone()
+                        || control.isCancelled()
+                        || !retry.shouldRetry(attempt, failure)) {
+                    throw failure;
+                }
+                Duration delay = retry.delayAfter(attempt);
+                if (delay.toNanos() >= stageDeadline.remainingNanos()) {
+                    throw failure;
+                }
+                events.stageRetrying(pathOf(node.id()), attempt, failure, delay);
+                if (!delay.isZero()) {
+                    Thread.sleep(delay);
+                }
+            }
+        }
+    }
+
+    /** One attempt: inline, or as its own task when a per-attempt timeout applies. */
+    private ContextPatch runAttempt(
+            StageNode node,
+            ContextView context,
+            Deadline stageDeadline,
+            RetryPolicy retry,
+            int attempt,
+            StageRun run
+    ) throws Exception {
+        if (retry.attemptTimeout().isEmpty()) {
+            return attemptBody(node, context, stageDeadline, run, run.cancel);
+        }
+        Duration limit = retry.attemptTimeout().get();
+        Deadline attemptDeadline = stageDeadline.min(Deadline.after(limit));
+        CancelSlot attemptCancel = new CancelSlot();
+        TrackedTask<ContextPatch> attemptTask = TrackedTask.submit(
+                executor,
+                attemptDeadline,
+                deadlines,
+                () -> attemptBody(node, context, attemptDeadline, run, attemptCancel),
+                attemptCancel::run
+        );
+        run.cancel.set(attemptTask::cancel);
+        if (run.isDone()) {
+            attemptTask.cancel();
+        }
+        try {
+            return attemptTask.join();
+        } catch (TrackedTask.DeadlineExceededException expired) {
+            if (stageDeadline.isExpired()) {
+                throw expired;
+            }
+            throw new StageAttemptTimeoutException(
+                    "Attempt " + attempt + " of stage '" + node.id() + "' exceeded " + limit);
+        } catch (TrackedTask.TaskExecutionException wrapped) {
+            if (wrapped.getCause() instanceof InterruptedException interrupted) {
+                throw interrupted;
+            }
+            throw wrapped;
+        }
+    }
+
+    /** Runs the stage body once, with a fresh child-task scope or child engine. */
+    private ContextPatch attemptBody(
+            StageNode node,
+            ContextView context,
+            Deadline deadline,
+            StageRun run,
+            CancelSlot cancel
+    ) throws Exception {
+        if (node.stage() instanceof NestedPipelineStage nested
+                && nested.pipeline() instanceof DefaultPipeline child) {
+            ExecutionControl childControl = new ExecutionControl();
+            Deadline childDeadline = child.definition().timeout()
+                    .map(Deadline::after)
+                    .map(deadline::min)
+                    .orElse(deadline);
+            // The child's own listeners are not used: its events go to the outermost run.
+            ExecutionEngine childEngine = new ExecutionEngine(
+                    child.definition(), executor, deadlines, childControl, childDeadline,
+                    events, pathOf(node.id()));
+            run.childEngine = childEngine;
+            cancel.set(childControl::cancel);
+            if (run.isDone()) {
+                childControl.cancel();
+                throw new CancellationException("Stage was cancelled");
+            }
+            return executeNestedBody(childEngine, context);
+        }
+        DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines);
+        cancel.set(childTasks::close);
+        if (run.isDone()) {
+            childTasks.close();
+            throw new CancellationException("Stage was cancelled");
+        }
+        return executeStageBody(node, context, childTasks);
+    }
+
+    private ContextPatch executeStageBody(
             StageNode node,
             ContextView context,
             DefaultStageTasks childTasks
     ) throws Exception {
-        long started = System.nanoTime();
         ContextPatch patch;
         try {
             control.throwIfCancelled();
@@ -372,7 +498,7 @@ final class ExecutionEngine {
         }
         // Normal return: an unobserved child failure fails the stage.
         childTasks.closeAndVerify();
-        return new StageExecution(patch, elapsed(started));
+        return patch;
     }
 
     /**
@@ -380,13 +506,12 @@ final class ExecutionEngine {
      * hands back everything it wrote, even if some of its own stages were blocked
      * or failed under CONTINUE; those show up in the nested stage's children.
      */
-    private StageExecution executeNestedBody(ExecutionEngine childEngine, ContextView context)
+    private ContextPatch executeNestedBody(ExecutionEngine childEngine, ContextView context)
             throws Exception {
-        long started = System.nanoTime();
         control.throwIfCancelled();
         DefaultPipelineResult childResult = childEngine.execute(context);
         return switch (childResult.status()) {
-            case COMPLETED -> new StageExecution(childEngine.writtenPatch(), elapsed(started));
+            case COMPLETED -> childEngine.writtenPatch();
             case CANCELLED -> throw new CancellationException("Nested pipeline was cancelled");
             case FAILED, TIMED_OUT -> throw new PipelineExecutionException(childResult);
         };
@@ -401,7 +526,7 @@ final class ExecutionEngine {
             control.cancel();
             return new DefaultStageResult(
                     node.id(), StageStatus.CANCELLED, Duration.ofNanos(task.elapsedNanos()),
-                    e, null, task.workerTermination(), childrenOf(task)
+                    e, null, task.workerTermination(), childrenOf(task), attemptsOf(task)
             );
         } finally {
             control.untrack(task);
@@ -444,9 +569,9 @@ final class ExecutionEngine {
             StageExecution execution = task.join();
             return new DefaultStageResult(
                     node.id(), StageStatus.SUCCEEDED, execution.duration(), null,
-                    execution.patch(), task.workerTermination(), childrenOf(task)
+                    execution.patch(), task.workerTermination(), childrenOf(task), attemptsOf(task)
             );
-        } catch (TrackedTask.DeadlineExceededException e) {
+        } catch (TrackedTask.DeadlineExceededException | StageAttemptTimeoutException e) {
             return unsuccessful(node, task, StageStatus.TIMED_OUT, e);
         } catch (CancellationException e) {
             return unsuccessful(node, task, StageStatus.CANCELLED, e);
@@ -469,13 +594,49 @@ final class ExecutionEngine {
     ) {
         return new DefaultStageResult(
                 node.id(), status, Duration.ofNanos(task.elapsedNanos()),
-                failure, null, task.workerTermination(), childrenOf(task)
+                failure, null, task.workerTermination(), childrenOf(task), attemptsOf(task)
         );
     }
 
     private List<StageResult> childrenOf(TrackedTask<?> task) {
-        ExecutionEngine child = childEngines.get(task);
+        StageRun run = stageRuns.get(task);
+        ExecutionEngine child = run == null ? null : run.childEngine;
         return child == null ? List.of() : child.snapshot();
+    }
+
+    private int attemptsOf(TrackedTask<?> task) {
+        StageRun run = stageRuns.get(task);
+        return run == null ? 0 : run.attempts.get();
+    }
+
+    /**
+     * Replaces a FAILED or TIMED_OUT result with a RECOVERED one when the stage has
+     * a fallback. Not used when the run is cancelled or the enclosing deadline has
+     * expired: the run is ending anyway.
+     */
+    private StageResult withFallback(StageNode node, ContextView context, StageResult result) {
+        boolean failed = result.status() == StageStatus.FAILED || result.status() == StageStatus.TIMED_OUT;
+        StageFallback fallback = node.options().fallback().orElse(null);
+        if (!failed || fallback == null || control.isCancelled() || inherited.isExpired()) {
+            return result;
+        }
+        Throwable failure = result.failure().orElse(null);
+        try {
+            ContextPatch patch = Objects.requireNonNull(fallback.recover(context, failure),
+                    "Fallback returned a null ContextPatch: " + node.id());
+            return new DefaultStageResult(result.stageId(), StageStatus.RECOVERED, result.duration(),
+                    failure, patch, result.workerTermination(), result.children(), result.attempts());
+        } catch (Throwable fallbackFailure) {
+            if (failure != null && failure != fallbackFailure) {
+                fallbackFailure.addSuppressed(failure);
+            }
+            return new DefaultStageResult(result.stageId(), StageStatus.FAILED, result.duration(),
+                    fallbackFailure, null, result.workerTermination(), result.children(), result.attempts());
+        }
+    }
+
+    private static TimeoutException deadlineExpired() {
+        return new TimeoutException("Pipeline deadline expired");
     }
 
     private boolean hasRequiredInputs(StageNode node, ContextView context) {
@@ -492,7 +653,7 @@ final class ExecutionEngine {
     private MergeOutcome mergeSuccessfulOutputs(List<StageResult> layerResults, ContextView base) {
         Map<String, List<String>> writersByName = new LinkedHashMap<>();
         for (StageResult result : layerResults) {
-            if (result.status() != StageStatus.SUCCEEDED) {
+            if (!isApplied(result.status())) {
                 continue;
             }
             result.output().ifPresent(patch -> patch.writtenKeys().forEach(key ->
@@ -506,7 +667,7 @@ final class ExecutionEngine {
         List<ContextPatch> applied = new ArrayList<>();
         ContextMergeException firstConflict = null;
         for (StageResult result : layerResults) {
-            List<String> problems = result.status() == StageStatus.SUCCEEDED
+            List<String> problems = isApplied(result.status())
                     ? result.output().map(patch -> conflictsOf(patch, writersByName, baseByName))
                             .orElse(List.of())
                     : List.of();
@@ -519,11 +680,12 @@ final class ExecutionEngine {
                 }
                 adjusted.add(new DefaultStageResult(
                         result.stageId(), StageStatus.FAILED, result.duration(), conflict,
-                        result.output().orElse(null), result.workerTermination(), result.children()
+                        result.output().orElse(null), result.workerTermination(), result.children(),
+                        result.attempts()
                 ));
             } else {
                 adjusted.add(result);
-                if (result.status() == StageStatus.SUCCEEDED) {
+                if (isApplied(result.status())) {
                     result.output().ifPresent(applied::add);
                 }
             }
@@ -555,6 +717,11 @@ final class ExecutionEngine {
         return parentPath == null ? StagePath.of(stageId) : parentPath.child(stageId);
     }
 
+    /** SUCCEEDED and RECOVERED stages have their patch applied. */
+    private static boolean isApplied(StageStatus status) {
+        return status == StageStatus.SUCCEEDED || status == StageStatus.RECOVERED;
+    }
+
     private static boolean stopsPipeline(StageNode node, StageResult result) {
         boolean unsuccessful = result.status() == StageStatus.FAILED
                 || result.status() == StageStatus.TIMED_OUT;
@@ -583,6 +750,32 @@ final class ExecutionEngine {
     }
 
     private record StageExecution(ContextPatch patch, Duration duration) { }
+
+    /** A replaceable cancellation action: whatever the current attempt must cancel. */
+    private static final class CancelSlot {
+        private volatile Runnable action = () -> { };
+
+        void set(Runnable action) {
+            this.action = action;
+        }
+
+        void run() {
+            action.run();
+        }
+    }
+
+    /** State shared by a stage's coordinator and its worker across attempts. */
+    private static final class StageRun {
+        final AtomicInteger attempts = new AtomicInteger();
+        final CancelSlot cancel = new CancelSlot();
+        volatile ExecutionEngine childEngine;
+        volatile TrackedTask<?> self;
+
+        boolean isDone() {
+            TrackedTask<?> task = self;
+            return task != null && task.isDone();
+        }
+    }
 
     /** A layer's results in definition order, and the FAIL_FAST result that stops the run, if any. */
     private record LayerOutcome(List<StageResult> results, StageResult trigger, Instant[] startedAt) { }

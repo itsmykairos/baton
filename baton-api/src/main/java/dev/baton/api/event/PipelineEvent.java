@@ -10,7 +10,7 @@ import java.util.UUID;
  * run, with a {@link StagePath} that includes the nested stage ids.</p>
  */
 public sealed interface PipelineEvent
-        permits RunStarted, StageStarted, StageFinished, RunFinished {
+        permits RunStarted, StageStarted, StageRetrying, StageFinished, RunFinished {
 
     /** {@return the id shared by every event of one run} */
     UUID runId();

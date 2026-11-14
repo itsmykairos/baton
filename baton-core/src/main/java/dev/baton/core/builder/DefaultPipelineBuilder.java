@@ -8,7 +8,9 @@ import dev.baton.core.definition.LayerDefinition;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.definition.StageNode;
 
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -20,6 +22,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
     private final List<LayerDefinition> layers = new ArrayList<>();
     private final List<PipelineListener> listeners = new ArrayList<>();
     private String name = PipelineDefinition.DEFAULT_NAME;
+    private Duration timeout;
 
     private final Set<String> layerIds = new HashSet<>();
     private final Set<String> stageIds = new HashSet<>();
@@ -31,6 +34,17 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         ensureOpen();
         StageNode.requireId(name, "pipeline name");
         this.name = name;
+        return this;
+    }
+
+    @Override
+    public DefaultPipelineBuilder timeout(Duration timeout) {
+        ensureOpen();
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
+        this.timeout = timeout;
         return this;
     }
 
@@ -127,7 +141,7 @@ public final class DefaultPipelineBuilder implements Pipeline.Builder {
         built = true;
 
         PipelineDefinition definition =
-                new PipelineDefinition(name, layers, listeners);
+                new PipelineDefinition(name, layers, listeners, Optional.ofNullable(timeout));
 
         return new dev.baton.core.DefaultPipeline(definition);
     }

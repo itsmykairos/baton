@@ -8,6 +8,7 @@ import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
 import dev.baton.api.event.StagePath;
+import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StageStarted;
 
 import java.time.Duration;
@@ -80,7 +81,15 @@ public final class RunEvents {
         }
         Instant end = startedAt == null ? Instant.now() : startedAt.plus(result.duration());
         sink.emit(new StageFinished(runId, pipelineName, path, result.status(), result.duration(),
-                result.failure(), result.workerTermination(), end));
+                result.failure(), result.attempts(), result.workerTermination(), end));
+    }
+
+    /** Emits StageRetrying for a failed attempt that will be retried after {@code delay}. */
+    public void stageRetrying(StagePath path, int failedAttempt, Throwable failure, Duration delay) {
+        if (!enabled()) {
+            return;
+        }
+        sink.emit(new StageRetrying(runId, pipelineName, path, failedAttempt, failure, delay, Instant.now()));
     }
 
     /** Ends the run's event stream with its outcome. */

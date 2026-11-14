@@ -57,6 +57,28 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Resilience
+
+- A stage's worker runs an attempt loop (`ExecutionEngine.runAttempts`).
+  - Each attempt builds a fresh `DefaultStageTasks` scope, or a fresh child engine for a
+    nested stage, and registers what must be cancelled in the stage's `CancelSlot`.
+  - With a per-attempt timeout, the attempt runs as its own `TrackedTask` under
+    `min(stage deadline, attempt timeout)`. Expiry is reported as
+    `StageAttemptTimeoutException`, unless the stage deadline itself expired.
+- The stage deadline bounds all attempts and backoff waits.
+  - Backoff is a `Thread.sleep` on the worker, so cancellation and expiry interrupt it.
+  - A retry whose backoff would outlast the deadline is not attempted.
+- Fallbacks run on the layer's coordinating thread, after the stage's outcome is known
+  and before FAIL_FAST is evaluated. So a RECOVERED stage never stops the run.
+  - RECOVERED patches take part in conflict detection like SUCCEEDED ones.
+  - Fallbacks are skipped when the run is cancelled or the enclosing deadline expired.
+- The run timeout is the outermost engine's inherited deadline, and every stage deadline
+  is capped by it. The engine also checks it:
+  - before each layer;
+  - after a layer in which a stage timed out, so CONTINUE stages cannot let a timed-out
+    run end COMPLETED.
+- A nested pipeline's builder timeout is capped by the nested stage's deadline.
+
 ## Observability
 
 - The engine emits run and stage events only when a run has listeners: the pipeline's

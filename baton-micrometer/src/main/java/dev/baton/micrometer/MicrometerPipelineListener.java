@@ -5,6 +5,7 @@ import dev.baton.api.event.PipelineListener;
 import dev.baton.api.event.RunFinished;
 import dev.baton.api.event.RunStarted;
 import dev.baton.api.event.StageFinished;
+import dev.baton.api.event.StageRetrying;
 import dev.baton.api.event.StageStarted;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <caption>Meters</caption>
  *   <tr><th>Name</th><th>Type</th><th>Tags</th></tr>
  *   <tr><td>{@value #STAGE_DURATION}</td><td>timer</td><td>pipeline, stage (path), status</td></tr>
+ *   <tr><td>{@value #STAGE_RETRIES}</td><td>counter</td><td>pipeline, stage (path)</td></tr>
  *   <tr><td>{@value #RUN_DURATION}</td><td>timer</td><td>pipeline, status</td></tr>
  *   <tr><td>{@value #ACTIVE_RUNS}</td><td>gauge</td><td>pipeline</td></tr>
  *   <tr><td>{@value #DROPPED_EVENTS}</td><td>counter</td><td>pipeline</td></tr>
@@ -37,6 +39,8 @@ public final class MicrometerPipelineListener implements PipelineListener {
 
     /** Timer for stage durations. */
     public static final String STAGE_DURATION = "baton.stage.duration";
+    /** Counter of retried stage attempts. */
+    public static final String STAGE_RETRIES = "baton.stage.retries";
     /** Timer for run durations. */
     public static final String RUN_DURATION = "baton.run.duration";
     /** Gauge of runs in progress. */
@@ -61,6 +65,12 @@ public final class MicrometerPipelineListener implements PipelineListener {
         switch (event) {
             case RunStarted started -> active(started.pipelineName()).incrementAndGet();
             case StageStarted ignored -> { }
+            case StageRetrying retrying -> Counter.builder(STAGE_RETRIES)
+                    .description("Stage attempts that failed and were retried")
+                    .tag("pipeline", retrying.pipelineName())
+                    .tag("stage", retrying.path().toString())
+                    .register(registry)
+                    .increment();
             case StageFinished finished -> Timer.builder(STAGE_DURATION)
                     .description("Time from a stage's start to its logical outcome")
                     .tag("pipeline", finished.pipelineName())

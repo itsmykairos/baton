@@ -104,6 +104,34 @@ class OpenTelemetryPipelineListenerTest {
     }
 
     @Test
+    void retriesBecomeSpanEventsAndAttemptsAnAttribute() throws Exception {
+        RecordingListener done = new RecordingListener();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        Pipeline pipeline = Pipeline.builder()
+                .name("flaky")
+                .listener(new OpenTelemetryPipelineListener(otel))
+                .stage("call", context -> {
+                    if (calls.incrementAndGet() < 2) {
+                        throw new java.io.IOException("down");
+                    }
+                    return ContextPatch.empty();
+                }, StageOptions.defaults().withRetry(dev.baton.api.RetryPolicy.maxAttempts(2)
+                        .withFixedDelay(Duration.ofMillis(5))))
+                .build();
+
+        pipeline.run(ContextView.empty(), RunOptions.defaults().withListener(done));
+        done.awaitRunsFinished(1, Duration.ofSeconds(5));
+
+        SpanData call = exporter.getFinishedSpanItems().stream()
+                .filter(span -> span.getName().equals("call")).findFirst().orElseThrow();
+        assertThat(call.getEvents()).extracting(event -> event.getName())
+                .containsExactly(OpenTelemetryPipelineListener.RETRY_EVENT);
+        assertThat(call.getAttributes().get(io.opentelemetry.api.common.AttributeKey.longKey(
+                OpenTelemetryPipelineListener.STAGE_ATTEMPTS))).isEqualTo(2L);
+        assertThat(call.getStatus().getStatusCode()).isEqualTo(StatusCode.UNSET);
+    }
+
+    @Test
     void failedRunIsAnError() throws Exception {
         RecordingListener done = new RecordingListener();
         Pipeline pipeline = Pipeline.builder()

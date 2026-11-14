@@ -72,6 +72,49 @@ class ApiValidationIT {
     }
 
     @Test
+    void retryAndRunOptionsValidateArguments() {
+        assertThatThrownBy(() -> dev.baton.api.RetryPolicy.maxAttempts(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        var policy = dev.baton.api.RetryPolicy.maxAttempts(3);
+        assertThatThrownBy(() -> policy.withBackoff(Duration.ofMillis(-1), 2, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.withBackoff(Duration.ofMillis(10), 0.5, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.withBackoff(Duration.ofSeconds(2), 2, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.withJitter(1.5)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.withAttemptTimeout(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> policy.retryOn(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withRetry(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withFallback(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withTimeout(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withEventBufferCapacity(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Pipeline.builder().timeout(Duration.ofMillis(-5)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void backoffGrowsAndIsCapped() {
+        var policy = dev.baton.api.RetryPolicy.maxAttempts(10)
+                .withBackoff(Duration.ofMillis(100), 2.0, Duration.ofMillis(350));
+
+        assertThat(policy.delayAfter(1)).isEqualTo(Duration.ofMillis(100));
+        assertThat(policy.delayAfter(2)).isEqualTo(Duration.ofMillis(200));
+        assertThat(policy.delayAfter(3)).isEqualTo(Duration.ofMillis(350));
+        assertThat(policy.withJitter(0.5).delayAfter(2))
+                .isBetween(Duration.ofMillis(100), Duration.ofMillis(200));
+        assertThat(policy.shouldRetry(9, new java.io.IOException())).isTrue();
+        assertThat(policy.shouldRetry(10, new java.io.IOException())).isFalse();
+        assertThat(policy.shouldRetry(1, new java.util.concurrent.CancellationException())).isFalse();
+        assertThat(policy.shouldRetry(1, new AssertionError())).isFalse();
+    }
+
+    @Test
     void builderRejectsInvalidDefinitions() {
         assertThatThrownBy(() -> Pipeline.builder().build())
                 .isInstanceOf(IllegalStateException.class)

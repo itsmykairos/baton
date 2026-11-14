@@ -68,7 +68,7 @@ public final class NestedPipelineStage implements Stage {
         ContextPatch.Builder builder = ContextPatch.builder();
         java.util.Set<ContextKey<?>> keys = new java.util.LinkedHashSet<>();
         for (StageResult stage : result.stages()) {
-            if (stage.status() == StageStatus.SUCCEEDED) {
+            if (stage.status() == StageStatus.SUCCEEDED || stage.status() == StageStatus.RECOVERED) {
                 stage.output().ifPresent(patch -> keys.addAll(patch.writtenKeys()));
             }
         }

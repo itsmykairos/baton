@@ -9,7 +9,16 @@ public enum StageStatus {
      * with another stage in the same parallel layer.
      */
     FAILED,
-    /** The stage's own timeout expired; any late patch is discarded. */
+    /**
+     * The stage failed or timed out, and its {@link StageFallback} supplied a patch
+     * that was applied instead. Counts as success; the original failure is kept in
+     * {@link StageResult#failure()}.
+     */
+    RECOVERED,
+    /**
+     * The stage's own timeout expired, or its last attempt exceeded the
+     * per-attempt timeout; any late patch is discarded.
+     */
     TIMED_OUT,
     /**
      * The stage did not run because a key from {@link Stage#requiredReads()} was

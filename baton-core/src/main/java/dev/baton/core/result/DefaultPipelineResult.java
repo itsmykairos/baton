@@ -36,7 +36,8 @@ public record DefaultPipelineResult(
     /** Checks nested children too: a successful nested stage may contain failed stages. */
     private static boolean allSucceeded(List<StageResult> stages) {
         return stages.stream().allMatch(stage ->
-                stage.status() == StageStatus.SUCCEEDED && allSucceeded(stage.children()));
+                (stage.status() == StageStatus.SUCCEEDED || stage.status() == StageStatus.RECOVERED)
+                        && allSucceeded(stage.children()));
     }
 
     private static boolean anyFailed(List<StageResult> stages) {

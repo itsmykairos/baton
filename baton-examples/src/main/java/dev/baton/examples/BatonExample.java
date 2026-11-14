@@ -3,7 +3,7 @@ package dev.baton.examples;
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
 import dev.baton.api.ContextView;
-import dev.baton.api.FailurePolicy;
+import dev.baton.api.RetryPolicy;
 import dev.baton.api.Pipeline;
 import dev.baton.api.PipelineResult;
 import dev.baton.api.Stage;
@@ -11,9 +11,11 @@ import dev.baton.api.StageContext;
 import dev.baton.api.StageOptions;
 import dev.baton.api.StageResult;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * An order checkout pipeline that shows the main Baton features:
@@ -21,7 +23,9 @@ import java.util.Set;
  * <ul>
  *   <li>sequential and parallel layers sharing an immutable context;</li>
  *   <li>child tasks forked and joined inside a stage;</li>
- *   <li>a stage timeout tolerated with {@link FailurePolicy#CONTINUE};</li>
+ *   <li>a slow optional stage recovered by a fallback after its timeout;</li>
+ *   <li>a flaky payment call retried with backoff;</li>
+ *   <li>a timeout for the whole run;</li>
  *   <li>a nested pipeline whose stages are reported as children.</li>
  * </ul>
  *
@@ -41,10 +45,17 @@ public final class BatonExample {
     }
 
     public static void main(String[] args) throws InterruptedException {
+        AtomicInteger gatewayCalls = new AtomicInteger();
         Pipeline payment = Pipeline.builder()
-                .stage("authorize", context -> ContextPatch.builder()
-                        .put(PAYMENT_ID, "pay-" + context.context().get(ORDER_ID))
-                        .build())
+                .stage("authorize", context -> {
+                    if (gatewayCalls.incrementAndGet() == 1) {
+                        throw new IOException("payment gateway unavailable"); // first call fails
+                    }
+                    return ContextPatch.builder()
+                            .put(PAYMENT_ID, "pay-" + context.context().get(ORDER_ID))
+                            .build();
+                }, StageOptions.defaults().withRetry(RetryPolicy.maxAttempts(3)
+                        .withBackoff(Duration.ofMillis(50), 2.0, Duration.ofMillis(500))))
                 .stage("capture", requires(Set.of(PAYMENT_ID, TOTAL_CENTS), context ->
                         ContextPatch.builder()
                                 .put(RECEIPT, "Captured " + formatCents(context.context().get(TOTAL_CENTS))
@@ -53,6 +64,8 @@ public final class BatonExample {
                 .build();
 
         Pipeline checkout = Pipeline.builder()
+                .name("checkout")
+                .timeout(Duration.ofSeconds(5))
                 .stage("load-order", context -> ContextPatch.builder()
                         .put(ITEMS, List.of(1299, 450, 2000))
                         .build())
@@ -67,18 +80,19 @@ public final class BatonExample {
                         return ContextPatch.builder().put(RECOMMENDATION, "socks").build();
                     }, StageOptions.defaults()
                             .withTimeout(Duration.ofMillis(100))
-                            .withFailurePolicy(FailurePolicy.CONTINUE));
+                            .withFallback((context, failure) -> ContextPatch.builder()
+                                    .put(RECOMMENDATION, "none").build()));
                 })
                 .stage("payment", payment.asStage(), StageOptions.defaults().withTimeout(Duration.ofSeconds(2)))
                 .build();
 
         PipelineResult result = checkout.run(ContextView.builder().put(ORDER_ID, "A-1001").build());
 
-        System.out.println("Run: " + result.status() + (result.isSuccessful() ? "" : " (with tolerated failures)"));
+        System.out.println("Run: " + result.status() + (result.isSuccessful() ? " (successful)" : ""));
         print(result.stages(), 1);
         System.out.println("Customer: " + result.context().get(CUSTOMER));
         System.out.println("Receipt: " + result.context().get(RECEIPT));
-        System.out.println("Recommendation present: " + result.context().contains(RECOMMENDATION));
+        System.out.println("Recommendation: " + result.context().get(RECOMMENDATION));
     }
 
     /** Prices each item in a forked child task and joins them all before returning. */
@@ -110,8 +124,9 @@ public final class BatonExample {
 
     private static void print(List<StageResult> stages, int depth) {
         for (StageResult stage : stages) {
-            System.out.printf("%s- %s %s (%d ms)%n", "  ".repeat(depth), stage.stageId(),
-                    stage.status(), stage.duration().toMillis());
+            System.out.printf("%s- %s %s (%d ms%s)%n", "  ".repeat(depth), stage.stageId(),
+                    stage.status(), stage.duration().toMillis(),
+                    stage.attempts() > 1 ? ", " + stage.attempts() + " attempts" : "");
             print(stage.children(), depth + 1);
         }
     }

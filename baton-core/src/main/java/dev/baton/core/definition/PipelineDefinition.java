@@ -2,7 +2,9 @@ package dev.baton.core.definition;
 
 import dev.baton.api.event.PipelineListener;
 
+import java.time.Duration;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -10,7 +12,8 @@ import java.util.Set;
 public record PipelineDefinition(
         String name,
         List<LayerDefinition> layers,
-        List<PipelineListener> listeners
+        List<PipelineListener> listeners,
+        Optional<Duration> timeout
 ) {
     public static final String DEFAULT_NAME = "pipeline";
 
@@ -20,12 +23,13 @@ public record PipelineDefinition(
                 Objects.requireNonNull(layers, "layers")
         );
         listeners = List.copyOf(Objects.requireNonNull(listeners, "listeners"));
+        Objects.requireNonNull(timeout, "timeout");
 
         validate(layers);
     }
 
     public PipelineDefinition(List<LayerDefinition> layers) {
-        this(DEFAULT_NAME, layers, List.of());
+        this(DEFAULT_NAME, layers, List.of(), Optional.empty());
     }
 
     private static void validate(List<LayerDefinition> layers) {

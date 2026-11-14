@@ -17,7 +17,8 @@ public record DefaultStageResult(
         Throwable error,
         ContextPatch patch,
         WorkerTermination workerTermination,
-        List<StageResult> children
+        List<StageResult> children,
+        int attempts
 ) implements StageResult {
 
     public DefaultStageResult {
@@ -26,6 +27,23 @@ public record DefaultStageResult(
         Objects.requireNonNull(duration, "duration");
         Objects.requireNonNull(workerTermination, "workerTermination");
         children = List.copyOf(children);
+        if (attempts < 0) {
+            throw new IllegalArgumentException("attempts must not be negative");
+        }
+    }
+
+    /** A result with one attempt, or none if the stage never started. */
+    public DefaultStageResult(
+            String stageId,
+            StageStatus status,
+            Duration duration,
+            Throwable error,
+            ContextPatch patch,
+            WorkerTermination workerTermination,
+            List<StageResult> children
+    ) {
+        this(stageId, status, duration, error, patch, workerTermination, children,
+                workerTermination == WorkerTermination.NOT_STARTED ? 0 : 1);
     }
 
     @Override

@@ -7,6 +7,7 @@ import dev.baton.api.PipelineRunStatus;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.RunOptions;
 import dev.baton.api.event.PipelineListener;
+import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.PipelineDefinition;
 import dev.baton.core.event.RunEvents;
@@ -47,7 +48,11 @@ public final class PipelineExecutionSession implements PipelineRun {
         List<PipelineListener> listeners = new ArrayList<>(definition.listeners());
         listeners.addAll(options.listeners());
         this.events = RunEvents.create(definition.name(), listeners, options.eventBufferCapacity());
-        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events);
+        Deadline runDeadline = options.timeout()
+                .or(definition::timeout)
+                .map(Deadline::after)
+                .orElseGet(Deadline::unlimited);
+        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline);
     }
 
     public PipelineResult executeSync() throws InterruptedException {

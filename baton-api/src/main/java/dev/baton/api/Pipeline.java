@@ -98,6 +98,18 @@ public interface Pipeline {
         Builder listener(PipelineListener listener);
 
         /**
+         * Limits every run of this pipeline; {@link RunOptions#withTimeout} overrides
+         * it for one run. When it expires, active stages time out, no further layer
+         * starts, and the run ends {@link PipelineStatus#TIMED_OUT}. When this
+         * pipeline runs nested, its timeout is also capped by the nested stage's
+         * deadline.
+         *
+         * @param timeout a positive limit for a whole run
+         * @return this builder
+         */
+        Builder timeout(java.time.Duration timeout);
+
+        /**
          * Adds a sequential stage using default options.
          *
          * @param id unique stage id

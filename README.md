@@ -77,6 +77,41 @@ result.context().get(TOTAL);                                     // 42
 - Neither waits for worker threads to exit. Interruption is cooperative, and
   `StageResult.workerTermination()` reports whether the worker's exit was confirmed.
 
+**Retries, fallbacks and run timeouts**
+
+```java
+StageOptions.defaults()
+        .withTimeout(Duration.ofSeconds(3))                         // total, across all attempts
+        .withRetry(RetryPolicy.maxAttempts(3)
+                .withBackoff(Duration.ofMillis(100), 2.0, Duration.ofSeconds(1))
+                .withJitter(0.2)
+                .withAttemptTimeout(Duration.ofSeconds(1))          // cut off one slow attempt
+                .retryOn(failure -> failure instanceof IOException))
+        .withFallback((context, failure) -> ContextPatch.builder().put(RECS, List.of()).build());
+
+Pipeline.builder().timeout(Duration.ofSeconds(10));                 // every run
+pipeline.run(input, RunOptions.defaults().withTimeout(Duration.ofSeconds(2)));  // this run
+```
+
+- **Retries.**
+  - Each attempt gets a fresh child-task scope, or a fresh child run for a nested pipeline.
+  - The stage timeout covers every attempt and backoff wait. A retry is skipped if its
+    backoff cannot finish in time.
+  - An attempt cut off by `withAttemptTimeout` fails with
+    `StageAttemptTimeoutException`, which is retried by default. If the last attempt ends
+    that way, the stage is TIMED_OUT.
+  - `StageResult.attempts()` reports how many attempts ran.
+- **Fallback.**
+  - A stage that fails or times out after its retries can be `RECOVERED`. The
+    fallback's patch is applied and the run continues.
+  - A RECOVERED stage counts as success, and the original failure stays in `failure()`.
+  - The fallback isn't used once the run is cancelled or its deadline has passed.
+- **Run timeout.**
+  - When the run timeout expires, active stages time out, no further layer starts, and
+    the run ends `TIMED_OUT`.
+  - A nested pipeline's own timeout also applies when it runs nested, capped by the
+    nested stage's deadline.
+
 **Child tasks**
 - Forked children cannot outlive their stage. When the stage returns, unfinished
   children are cancelled.
@@ -94,7 +129,7 @@ result.context().get(TOTAL);                                     // 42
 ## Observability
 
 Runs emit events (`RunStarted`, `StageStarted`, `StageFinished`, `RunFinished`, in
-`dev.baton.api.event`) to `PipelineListener`s:
+`dev.baton.api.event`) to `PipelineListener`s, plus `StageRetrying` before each retry:
 
 ```java
 Pipeline checkout = Pipeline.builder()
@@ -122,8 +157,8 @@ checkout.run(input, RunOptions.defaults()
 - Their events go to the outermost run's listeners, with paths like `payment/charge`.
 
 **Adapters** (optional modules that depend only on `baton-api` and their own library)
-- `baton-micrometer` records `baton.stage.duration`, `baton.run.duration`,
-  `baton.runs.active` and `baton.events.dropped`.
+- `baton-micrometer` records `baton.stage.duration`, `baton.stage.retries`,
+  `baton.run.duration`, `baton.runs.active` and `baton.events.dropped`.
 - `baton-opentelemetry` creates a span per run and per stage, using the events'
   timestamps. FAILED and TIMED_OUT stages and runs are marked as errors.
 

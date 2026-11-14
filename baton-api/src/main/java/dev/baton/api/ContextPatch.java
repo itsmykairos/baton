@@ -72,12 +72,15 @@ public final class ContextPatch {
     public ContextView applyTo(ContextView base) {
         Objects.requireNonNull(base, "base");
 
-        for (ContextKey<?> existing : base.keys()) {
-            for (ContextKey<?> written : writes.keySet()) {
-                if (existing.clashesWith(written)) {
-                    throw new ContextMergeException(
-                            ImmutableContextView.typeClash(existing, written).getMessage());
-                }
+        if (base instanceof ImmutableContextView view) {
+            // Adds one small level instead of copying the whole context.
+            return view.with(writes);
+        }
+        for (ContextKey<?> written : writes.keySet()) {
+            ContextKey<?> existing = base.keyNamed(written.name()).orElse(null);
+            if (existing != null && existing.clashesWith(written)) {
+                throw new ContextMergeException(
+                        ImmutableContextView.typeClash(existing, written).getMessage());
             }
         }
 

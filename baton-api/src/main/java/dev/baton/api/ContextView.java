@@ -40,6 +40,24 @@ public interface ContextView {
     /** {@return the keys present, in insertion order} */
     Set<ContextKey<?>> keys();
 
+    /**
+     * Finds the key stored under a name. A context holds at most one type per name,
+     * so there is at most one. The default scans {@link #keys()}; the built-in
+     * implementation uses an index.
+     *
+     * @param name the key name
+     * @return the key with that name, or empty if none is present
+     */
+    default Optional<ContextKey<?>> keyNamed(String name) {
+        java.util.Objects.requireNonNull(name, "name");
+        for (ContextKey<?> key : keys()) {
+            if (key.name().equals(name)) {
+                return Optional.of(key);
+            }
+        }
+        return Optional.empty();
+    }
+
     /** {@return a context with no values} */
     static ContextView empty() {
         return ImmutableContextView.empty();

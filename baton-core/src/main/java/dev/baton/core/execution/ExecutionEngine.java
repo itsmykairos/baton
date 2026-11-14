@@ -684,7 +684,12 @@ final class ExecutionEngine {
     }
 
     private boolean hasRequiredInputs(StageNode node, ContextView context) {
-        return context.keys().containsAll(node.requiredReads());
+        for (ContextKey<?> key : node.requiredReads()) {
+            if (!context.contains(key)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -704,15 +709,13 @@ final class ExecutionEngine {
                     writersByName.computeIfAbsent(key.name(), ignored -> new ArrayList<>())
                             .add(result.stageId())));
         }
-        Map<String, ContextKey<?>> baseByName = new LinkedHashMap<>();
-        base.keys().forEach(key -> baseByName.put(key.name(), key));
 
         List<StageResult> adjusted = new ArrayList<>(layerResults.size());
         List<ContextPatch> applied = new ArrayList<>();
         ContextMergeException firstConflict = null;
         for (StageResult result : layerResults) {
             List<String> problems = isApplied(result.status())
-                    ? result.output().map(patch -> conflictsOf(patch, writersByName, baseByName))
+                    ? result.output().map(patch -> conflictsOf(patch, writersByName, base))
                             .orElse(List.of())
                     : List.of();
             if (!problems.isEmpty()) {
@@ -740,7 +743,7 @@ final class ExecutionEngine {
     private static List<String> conflictsOf(
             ContextPatch patch,
             Map<String, List<String>> writersByName,
-            Map<String, ContextKey<?>> baseByName
+            ContextView base
     ) {
         List<String> problems = new ArrayList<>();
         for (ContextKey<?> key : patch.writtenKeys()) {
@@ -748,7 +751,7 @@ final class ExecutionEngine {
             if (writers.size() > 1) {
                 problems.add(key.name() + " also written in the same layer by " + writers);
             }
-            ContextKey<?> existing = baseByName.get(key.name());
+            ContextKey<?> existing = base.keyNamed(key.name()).orElse(null);
             if (existing != null && !existing.type().equals(key.type())) {
                 problems.add(key.name() + " already holds " + existing.type().getName()
                         + ", not " + key.type().getName());

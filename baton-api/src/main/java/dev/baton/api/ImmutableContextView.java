@@ -1,38 +1,112 @@
 package dev.baton.api;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * The context implementation: an immutable chain of small levels.
+ *
+ * <p>Applying a patch adds one level holding only the patch's writes on top of
+ * the previous context, instead of copying every value. Each level indexes its
+ * own keys by name, so the one-type-per-name rule is checked without scanning
+ * the whole context. After {@link #MAX_DEPTH} levels the chain is flattened into
+ * one level, which keeps lookups short while spreading the copy cost over many
+ * patches.</p>
+ */
 final class ImmutableContextView implements ContextView {
 
-    private static final ImmutableContextView EMPTY =
-            new ImmutableContextView(Map.of());
+    /** Levels allowed before the chain is flattened. */
+    static final int MAX_DEPTH = 16;
 
+    private static final ImmutableContextView EMPTY =
+            new ImmutableContextView(null, Map.of(), Map.of(), 0);
+
+    /** The level below, or null for the bottom level. */
+    private final ImmutableContextView parent;
+    /** This level's values; they hide the same keys in lower levels. */
     private final Map<ContextKey<?>, Object> values;
+    /** This level's keys by name. */
+    private final Map<String, ContextKey<?>> byName;
+    private final int depth;
+    /** All keys in insertion order, built on first use. */
+    private volatile Set<ContextKey<?>> keys;
 
     private ImmutableContextView(
-            Map<ContextKey<?>, Object> values
+            ImmutableContextView parent,
+            Map<ContextKey<?>, Object> values,
+            Map<String, ContextKey<?>> byName,
+            int depth
     ) {
-        rejectTypeClashes(values.keySet());
-        this.values = Collections.unmodifiableMap(
-                new LinkedHashMap<>(values)
-        );
+        this.parent = parent;
+        this.values = values;
+        this.byName = byName;
+        this.depth = depth;
+    }
+
+    static ImmutableContextView empty() {
+        return EMPTY;
+    }
+
+    /**
+     * A single-level context holding {@code values}.
+     *
+     * @throws IllegalArgumentException if two keys share a name but not a type
+     */
+    static ImmutableContextView copyOf(Map<ContextKey<?>, Object> values) {
+        if (values.isEmpty()) {
+            return EMPTY;
+        }
+        Map<ContextKey<?>, Object> copy = new LinkedHashMap<>(values);
+        return new ImmutableContextView(null, Collections.unmodifiableMap(copy), indexByName(copy.keySet()), 0);
+    }
+
+    /**
+     * This context with {@code writes} applied; written keys replace existing values.
+     * Costs O(writes) unless the chain needs flattening.
+     *
+     * @throws ContextMergeException if a written key's name is used here with another type
+     */
+    ImmutableContextView with(Map<ContextKey<?>, Object> writes) {
+        if (writes.isEmpty()) {
+            return this;
+        }
+        for (ContextKey<?> written : writes.keySet()) {
+            ContextKey<?> existing = findKeyNamed(written.name());
+            if (existing != null && existing.clashesWith(written)) {
+                throw new ContextMergeException(typeClash(existing, written).getMessage());
+            }
+        }
+        if (this == EMPTY) {
+            return copyOf(writes);
+        }
+        if (depth + 1 >= MAX_DEPTH) {
+            Map<ContextKey<?>, Object> flat = flatValues();
+            flat.putAll(writes);
+            return new ImmutableContextView(null, Collections.unmodifiableMap(flat),
+                    indexByName(flat.keySet()), 0);
+        }
+        Map<ContextKey<?>, Object> level = new LinkedHashMap<>(writes);
+        return new ImmutableContextView(this, Collections.unmodifiableMap(level),
+                indexByName(level.keySet()), depth + 1);
     }
 
     /** A context holds at most one type per key name. */
-    static void rejectTypeClashes(Set<ContextKey<?>> keys) {
-        Map<String, ContextKey<?>> byName = new LinkedHashMap<>();
+    private static Map<String, ContextKey<?>> indexByName(Set<ContextKey<?>> keys) {
+        Map<String, ContextKey<?>> byName = new HashMap<>(Math.max(4, keys.size() * 2));
         for (ContextKey<?> key : keys) {
             ContextKey<?> previous = byName.putIfAbsent(key.name(), key);
             if (previous != null && previous.clashesWith(key)) {
                 throw typeClash(previous, key);
             }
         }
+        return byName;
     }
 
     static IllegalArgumentException typeClash(ContextKey<?> existing, ContextKey<?> added) {
@@ -43,60 +117,91 @@ final class ImmutableContextView implements ContextView {
         );
     }
 
-    static ImmutableContextView empty() {
-        return EMPTY;
+    private ContextKey<?> findKeyNamed(String name) {
+        for (ImmutableContextView level = this; level != null; level = level.parent) {
+            ContextKey<?> key = level.byName.get(name);
+            if (key != null) {
+                return key;
+            }
+        }
+        return null;
     }
 
-    static ImmutableContextView copyOf(
-            Map<ContextKey<?>, Object> values
-    ) {
-        return values.isEmpty()
-                ? EMPTY
-                : new ImmutableContextView(values);
+    /** Looks a key up from the top level down; the first level holding it wins. */
+    private Object lookup(ContextKey<?> key) {
+        for (ImmutableContextView level = this; level != null; level = level.parent) {
+            Object value = level.values.get(key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /** Every value in insertion order, with upper levels overriding lower ones. */
+    private Map<ContextKey<?>, Object> flatValues() {
+        Map<ContextKey<?>, Object> flat = new LinkedHashMap<>();
+        appendValues(flat);
+        return flat;
+    }
+
+    private void appendValues(Map<ContextKey<?>, Object> into) {
+        if (parent != null) {
+            parent.appendValues(into);
+        }
+        into.putAll(values);
     }
 
     @Override
     public <T> T get(ContextKey<T> key) {
         Objects.requireNonNull(key, "key");
-
-        if (!values.containsKey(key)) {
+        Object value = lookup(key);
+        if (value == null) {
             throw new NoSuchElementException(
                     "Context value is missing: " + key.name()
             );
         }
-
-        return key.cast(values.get(key));
+        return key.cast(value);
     }
 
     @Override
     public <T> Optional<T> find(ContextKey<T> key) {
         Objects.requireNonNull(key, "key");
-
-        return values.containsKey(key)
-                ? Optional.of(key.cast(values.get(key)))
-                : Optional.empty();
+        Object value = lookup(key);
+        return value == null ? Optional.empty() : Optional.of(key.cast(value));
     }
 
     @Override
     public boolean contains(ContextKey<?> key) {
-        return values.containsKey(
-                Objects.requireNonNull(key, "key")
-        );
+        return lookup(Objects.requireNonNull(key, "key")) != null;
+    }
+
+    @Override
+    public Optional<ContextKey<?>> keyNamed(String name) {
+        return Optional.ofNullable(findKeyNamed(Objects.requireNonNull(name, "name")));
     }
 
     @Override
     public Set<ContextKey<?>> keys() {
-        return Collections.unmodifiableSet(values.keySet());
-    }
-
-    Map<ContextKey<?>, Object> values() {
-        return values;
+        Set<ContextKey<?>> result = keys;
+        if (result == null) {
+            if (parent == null) {
+                result = Collections.unmodifiableSet(values.keySet());
+            } else {
+                Set<ContextKey<?>> all = new LinkedHashSet<>(parent.keys());
+                all.addAll(values.keySet());
+                result = Collections.unmodifiableSet(all);
+            }
+            keys = result;
+        }
+        return result;
     }
 
     static final class BuilderImpl implements ContextView.Builder {
 
         private final Map<ContextKey<?>, Object> values =
                 new LinkedHashMap<>();
+        private final Map<String, ContextKey<?>> byName = new HashMap<>();
 
         @Override
         public <T> BuilderImpl put(
@@ -111,10 +216,9 @@ final class ImmutableContextView implements ContextView {
                         "Invalid value type for key: " + key.name()
                 );
             }
-            for (ContextKey<?> existing : values.keySet()) {
-                if (existing.clashesWith(key)) {
-                    throw typeClash(existing, key);
-                }
+            ContextKey<?> existing = byName.putIfAbsent(key.name(), key);
+            if (existing != null && existing.clashesWith(key)) {
+                throw typeClash(existing, key);
             }
 
             values.put(key, value);

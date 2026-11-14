@@ -51,6 +51,9 @@ the library modules.
   and `isSuccessful()` / `hasFailures()` check them recursively. Other `Pipeline`
   implementations fall back to `NestedPipelineStage.execute()`.
 - Context snapshots are immutable. A stage returns one patch for the pipeline to merge.
+  `ImmutableContextView` is a chain of small levels. Applying a patch adds one level with
+  only its writes and its own name index, and the chain is flattened every 16 levels, so
+  a layer's merge costs O(writes) rather than O(context).
   Writes to the same key by two stages of one parallel layer are a conflict: those stages
   are FAILED and their patches are not applied. Across layers, later writes overwrite
   earlier values.
@@ -98,7 +101,10 @@ the library modules.
   starts no threads.
 - Each run with listeners has an `AsyncEventDispatcher`: a bounded queue drained by one
   virtual thread.
-  - Producers only `offer`; when the queue is full, the event is dropped and counted.
+  - Producers only append to a lock-free queue and never wake the delivery thread; when
+    the queue is full, the event is dropped and counted.
+  - The delivery thread drains in batches at least every 10 ms, and is unparked when the
+    run finishes. Waking it per event measurably slowed short runs.
   - The final `RunFinished` is never dropped. It is delivered after the queue drains,
     and carries the drop count.
   - A listener that throws is logged through `System.Logger` (`dev.baton.event`) and

@@ -6,34 +6,48 @@ import dev.baton.api.event.RunFinished;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.LongFunction;
 
 /**
  * Delivers one run's events to its listeners on a dedicated virtual thread.
  *
- * <p>Producers (stage and engine threads) only offer to a bounded queue and never
- * block; when it is full the event is dropped and counted. The final
- * {@link RunFinished} event is never dropped: it is delivered once the queue has
- * drained.</p>
+ * <p>Producers (stage and engine threads) only append to a lock-free queue and
+ * never block or wake the delivery thread; when the queue holds {@code capacity}
+ * events, further events are dropped and counted. The delivery thread drains the
+ * queue in batches at least every {@link #BATCH_INTERVAL_MILLIS} ms, and at once
+ * when the run finishes. Waking it for every event would cost a park/unpark per
+ * event, which measurably slows short runs.</p>
+ *
+ * <p>The final {@link RunFinished} event is never dropped: it is delivered after
+ * every queued event.</p>
  */
 public final class AsyncEventDispatcher implements EventSink {
 
+    /** Longest delay before a queued event is delivered while the run is active. */
+    public static final long BATCH_INTERVAL_MILLIS = 10;
+
     private static final System.Logger LOG = System.getLogger("dev.baton.event");
-    private static final Object END = new Object();
+    private static final long BATCH_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(BATCH_INTERVAL_MILLIS);
 
     private final List<PipelineListener> listeners;
-    private final BlockingQueue<Object> queue;
+    private final int capacity;
+    private final Queue<PipelineEvent> queue = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger size = new AtomicInteger();
     private final AtomicLong dropped = new AtomicLong();
+    private final Thread deliveryThread;
     private volatile LongFunction<RunFinished> lastEvent;
 
     public AsyncEventDispatcher(List<PipelineListener> listeners, int capacity) {
         this.listeners = List.copyOf(listeners);
-        this.queue = new ArrayBlockingQueue<>(capacity);
-        Thread.ofVirtual().name("baton-events").start(this::drain);
+        this.capacity = capacity;
+        this.deliveryThread = Thread.ofVirtual().name("baton-events").unstarted(this::drain);
+        deliveryThread.start();
     }
 
     @Override
@@ -44,9 +58,16 @@ public final class AsyncEventDispatcher implements EventSink {
     @Override
     public void emit(PipelineEvent event) {
         Objects.requireNonNull(event, "event");
-        if (lastEvent != null || !queue.offer(event)) {
+        if (lastEvent != null) {
             dropped.incrementAndGet();
+            return;
         }
+        if (size.incrementAndGet() > capacity) {
+            size.decrementAndGet();
+            dropped.incrementAndGet();
+            return;
+        }
+        queue.offer(event);
     }
 
     @Override
@@ -56,33 +77,27 @@ public final class AsyncEventDispatcher implements EventSink {
             return;
         }
         this.lastEvent = lastEvent;
-        // If the queue is full, the drain loop notices lastEvent once it empties.
-        queue.offer(END);
+        LockSupport.unpark(deliveryThread);
     }
 
     private void drain() {
         for (;;) {
-            Object next;
-            try {
-                next = queue.poll(100, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException interrupted) {
-                // Nothing interrupts this thread; keep delivering.
-                continue;
+            for (PipelineEvent event; (event = queue.poll()) != null; ) {
+                size.decrementAndGet();
+                deliver(event);
             }
             LongFunction<RunFinished> finalEvent = lastEvent;
-            if (next == END || (next == null && finalEvent != null && queue.isEmpty())) {
-                // Events that raced past finish() land after END; they count as dropped.
-                for (Object late; (late = queue.poll()) != null; ) {
-                    if (late != END) {
-                        dropped.incrementAndGet();
-                    }
+            if (finalEvent != null) {
+                // Events emitted before finish() but appended after this thread saw
+                // lastEvent are still in the queue: deliver them first.
+                for (PipelineEvent event; (event = queue.poll()) != null; ) {
+                    deliver(event);
                 }
                 deliver(finalEvent.apply(dropped.get()));
                 return;
             }
-            if (next != null) {
-                deliver((PipelineEvent) next);
-            }
+            // An unpark from finish() before this park makes it return at once.
+            LockSupport.parkNanos(this, BATCH_INTERVAL_NANOS);
         }
     }
 

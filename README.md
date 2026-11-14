@@ -18,6 +18,7 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 | `baton-opentelemetry` | Optional: one trace per run, one span per stage, for OpenTelemetry. | `implementation` |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
+| `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
 
 All modules except the test and example modules are JPMS modules (`dev.baton.api`,
 `dev.baton.core`, `dev.baton.testkit`). On the module path, `requires dev.baton.api`
@@ -168,6 +169,8 @@ checkout.run(input, RunOptions.defaults()
 - A run without listeners creates no queue, no thread and no event objects.
 - Events of one run arrive in order, and `RunFinished` is always last.
   `RunFinished` can arrive after `run()` returns.
+- Events are delivered in batches, at least every 10 ms during a run and at once when
+  it ends. Their timestamps are when they happened.
 
 **Nested pipelines**
 - Their events go to the outermost run's listeners, with paths like `payment/charge`.
@@ -205,6 +208,7 @@ System.out.println(PipelineResults.describe(result));
 ```bash
 ./gradlew build                    # compile, test, Javadoc (warnings fail the API build)
 ./gradlew :baton-examples:run      # the checkout example, on the module path
+./gradlew :baton-benchmarks:jmh    # engine benchmarks (~2 minutes)
 ```
 
 Requires JDK 21. The Gradle wrapper downloads everything else.

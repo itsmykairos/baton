@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Builds and emits one run's events. Every method is a no-op, building nothing,
@@ -47,7 +48,18 @@ public final class RunEvents {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return new RunEvents(new AsyncEventDispatcher(listeners, capacity), UUID.randomUUID(), pipelineName);
+        return new RunEvents(new AsyncEventDispatcher(listeners, capacity), newRunId(), pipelineName);
+    }
+
+    /**
+     * A random (version 4) UUID from {@link ThreadLocalRandom}. Run ids only need to
+     * be unique, not unpredictable, so this avoids {@code SecureRandom} on every run.
+     */
+    static UUID newRunId() {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        long most = (random.nextLong() & ~0xF000L) | 0x4000L;               // version 4
+        long least = (random.nextLong() & ~(0x3L << 62)) | (0x2L << 62);    // IETF variant
+        return new UUID(most, least);
     }
 
     public boolean enabled() {

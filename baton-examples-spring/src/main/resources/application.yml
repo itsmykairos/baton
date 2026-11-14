@@ -1,12 +1,22 @@
 spring:
   main:
     banner-mode: off
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, baton
+
 logging:
   level:
     root: warn
     dev.baton.examples: info
   pattern:
-    console: "%d{HH:mm:ss.SSS} [%-15X{baton.stage:-main}] %X{requestId} %msg%n"
+    console: "%d{HH:mm:ss.SSS} [%-15X{baton.stage:-request}] %-8X{requestId} %msg%n"
 
 baton:
   context:

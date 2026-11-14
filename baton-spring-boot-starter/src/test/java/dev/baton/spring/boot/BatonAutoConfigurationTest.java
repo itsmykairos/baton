@@ -385,6 +385,14 @@ class BatonAutoConfigurationTest {
     }
 
     @Test
+    void endpointSelectorParameterKeepsItsNameForActuator() throws Exception {
+        // Actuator maps /actuator/baton/{bean} by parameter name; it needs -parameters.
+        var parameter = BatonEndpoint.class.getMethod("pipeline", String.class).getParameters()[0];
+        assertThat(parameter.isNamePresent()).isTrue();
+        assertThat(parameter.getName()).isEqualTo("bean");
+    }
+
+    @Test
     void endpointIsAbsentUnlessExposed() {
         runner.withUserConfiguration(Stages.class).run(context ->
                 assertThat(context).doesNotHaveBean(BatonEndpoint.class));

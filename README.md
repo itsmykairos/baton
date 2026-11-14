@@ -19,7 +19,7 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 | `baton-visualize` | Optional: Mermaid diagrams of pipelines and runs. | `implementation` |
 | `baton-slf4j` | Optional: carries the SLF4J MDC into stage threads, with run and stage keys. | `implementation` |
 | `baton-spring-boot-starter` | Optional: Spring Boot 4.1 auto-configuration, pipelines in `application.yml`, `/actuator/baton`. | `implementation` |
-| `baton-examples-spring` | A runnable Spring Boot example (not published). | — |
+| `baton-examples-spring` | A runnable Spring Boot web app with `/actuator/baton` and a dashboard (not published). | — |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
@@ -191,8 +191,9 @@ baton:
         - pipeline: payment
 ```
 
-See [docs/spring-boot.md](docs/spring-boot.md), and run
-`./gradlew :baton-examples-spring:run`.
+See [docs/spring-boot.md](docs/spring-boot.md). To try it, run
+`./gradlew :baton-examples-spring:run` and open <http://localhost:8080>: the page draws
+the pipeline from `/actuator/baton` and runs checkouts on demand.
 
 ## Context propagation
 

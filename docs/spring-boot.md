@@ -13,7 +13,16 @@ dependencies {
 }
 ```
 
-A runnable app is in `baton-examples-spring` (`./gradlew :baton-examples-spring:run`).
+A runnable web app is in `baton-examples-spring`:
+
+```bash
+./gradlew :baton-examples-spring:run
+```
+
+Then open <http://localhost:8080>. The page draws the configured `checkout` pipeline
+from `/actuator/baton/checkout`. **Run checkout** calls `POST /checkout`, which runs the
+pipeline and redraws the diagram with the run's statuses, durations and attempts. The
+console shows each request's log lines, labelled with the stage that wrote them.
 
 ## Settings from `application.yml`
 
@@ -131,7 +140,8 @@ With Actuator present and the endpoint exposed
 
 - `GET /actuator/baton` lists every `Pipeline` bean, with its name, layer count and
   stage count.
-- `GET /actuator/baton/{bean}` returns one pipeline:
+- `GET /actuator/baton/{bean}` returns one pipeline (the starter is compiled with
+  `-parameters`, which Actuator needs to map `{bean}`):
   - its layers and stages, with their options, required inputs and nested pipelines;
   - its effective settings;
   - a Mermaid diagram (see [visualization.md](visualization.md)).

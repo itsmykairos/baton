@@ -37,6 +37,11 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    // Actuator maps @Selector parameters (/actuator/baton/{bean}) by their names.
+    options.compilerArgs.add("-parameters")
+}
+
 tasks.jar {
     manifest {
         attributes("Automatic-Module-Name" to "dev.baton.spring.boot")

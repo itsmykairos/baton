@@ -2,35 +2,33 @@ package dev.baton.examples.spring;
 
 import dev.baton.api.ContextKey;
 import dev.baton.api.ContextPatch;
-import dev.baton.api.ContextView;
 import dev.baton.api.Pipeline;
-import dev.baton.api.PipelineResult;
 import dev.baton.api.RetryPolicy;
 import dev.baton.api.Stage;
 import dev.baton.api.StageFallback;
 import dev.baton.api.StageOptions;
-import dev.baton.api.StageResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
 
 import java.time.Duration;
-import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * The Baton starter in a Spring Boot app.
+ * The Baton starter in a Spring Boot web app.
  *
  * <ul>
  *   <li>{@code checkout} is declared in {@code application.yml} from the stage beans
- *       below;</li>
- *   <li>{@code payment} is declared in code with the injected, pre-configured
- *       builder, and nested into {@code checkout} by name;</li>
+ *       below; {@code payment} is declared in code with the injected builder and
+ *       nested into {@code checkout} by name;</li>
+ *   <li>{@code POST /checkout} runs it ({@link CheckoutController});</li>
+ *   <li>{@code /actuator/baton} shows every pipeline, and {@code /} renders them as
+ *       diagrams;</li>
  *   <li>log lines show which stage wrote them, through the MDC propagation the
  *       starter wires automatically ({@code %X{baton.stage}} in the log pattern).</li>
  * </ul>
@@ -38,6 +36,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SpringBootApplication
 public class SpringExample {
 
+    static final ContextKey<String> ORDER_ID = ContextKey.of("orderId", String.class);
     static final ContextKey<String> ORDER = ContextKey.of("order", String.class);
     static final ContextKey<String> CUSTOMER = ContextKey.of("customer", String.class);
     static final ContextKey<String> RECOMMENDATION = ContextKey.of("recommendation", String.class);
@@ -49,11 +48,17 @@ public class SpringExample {
         SpringApplication.run(SpringExample.class, args);
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    void ready() {
+        LOG.info("Ready: open http://localhost:8080  (actuator: http://localhost:8080/actuator/baton)");
+    }
+
     @Bean
     Stage loadOrder() {
         return context -> {
-            LOG.info("loading order");
-            return ContextPatch.builder().put(ORDER, "A-1001").build();
+            String orderId = context.context().find(ORDER_ID).orElse("A-1001");
+            LOG.info("loading order {}", orderId);
+            return ContextPatch.builder().put(ORDER, orderId).build();
         };
     }
 
@@ -61,16 +66,19 @@ public class SpringExample {
     Stage customer() {
         return context -> {
             LOG.info("looking up customer");
+            Thread.sleep(30);
             return ContextPatch.builder().put(CUSTOMER, "Ada").build();
         };
     }
 
+    /** A flaky service: half the time it answers quickly, half the time it hangs. */
     @Bean
     Stage recommendations() {
         return context -> {
-            LOG.info("asking a slow recommendation service");
-            Thread.sleep(5_000);
-            return ContextPatch.empty();
+            boolean slow = ThreadLocalRandom.current().nextBoolean();
+            LOG.info("asking the recommendation service ({})", slow ? "it will hang" : "it will answer");
+            Thread.sleep(slow ? 5_000 : 20);
+            return ContextPatch.builder().put(RECOMMENDATION, "socks").build();
         };
     }
 
@@ -82,12 +90,13 @@ public class SpringExample {
         };
     }
 
+    /** Declared in code; the first attempt of every charge fails, so each run shows a retry. */
     @Bean
     Pipeline payment(Pipeline.Builder builder) {
         AtomicInteger calls = new AtomicInteger();
         return builder.name("payment")
                 .stage("charge", context -> {
-                    if (calls.incrementAndGet() == 1) {
+                    if (calls.incrementAndGet() % 2 == 1) {
                         LOG.info("payment gateway timed out");
                         throw new java.io.IOException("gateway timeout");
                     }
@@ -96,29 +105,5 @@ public class SpringExample {
                 }, StageOptions.defaults().withRetry(RetryPolicy.maxAttempts(3)
                         .withFixedDelay(Duration.ofMillis(50))))
                 .build();
-    }
-
-    @Bean
-    CommandLineRunner runCheckout(@Qualifier("checkout") Pipeline checkout) {
-        return args -> {
-            MDC.put("requestId", "req-42");
-            try {
-                LOG.info("starting checkout");
-                PipelineResult result = checkout.run(ContextView.empty());
-                LOG.info("checkout {} - receipt {}, recommendation {}", result.status(),
-                        result.context().get(RECEIPT), result.context().get(RECOMMENDATION));
-                print(result.stages(), "  ");
-            } finally {
-                MDC.clear();
-            }
-        };
-    }
-
-    private static void print(List<StageResult> stages, String indent) {
-        for (StageResult stage : stages) {
-            System.out.printf("%s%s %s%s%n", indent, stage.stageId(), stage.status(),
-                    stage.attempts() > 1 ? " (" + stage.attempts() + " attempts)" : "");
-            print(stage.children(), indent + "  ");
-        }
     }
 }

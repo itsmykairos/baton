@@ -16,6 +16,7 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 | `baton-testkit` | Helpers for testing stages and inspecting results, and a `RecordingListener`. | `testImplementation` |
 | `baton-micrometer` | Optional: run and stage metrics for Micrometer. | `implementation` |
 | `baton-opentelemetry` | Optional: one trace per run, one span per stage, for OpenTelemetry. | `implementation` |
+| `baton-visualize` | Optional: Mermaid diagrams of pipelines and runs. | `implementation` |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
@@ -163,6 +164,19 @@ static final BatonConfig APP = BatonConfig.builder()
 Every key conflict is listed in `PipelineResult.conflicts()` and sent as a
 `ContextConflict` event. [docs/configuration.md](docs/configuration.md) lists every
 setting, its scope and precedence, and how to choose a flatten depth.
+
+## Visualization
+
+`Pipeline.describe()` returns the pipeline's structure: layers, stages, options,
+required inputs and nested pipelines. The optional `baton-visualize` module renders it
+as a Mermaid flowchart, with or without a run's result overlaid (stages colored by
+status, with durations, attempts and conflicts).
+
+```java
+String diagram = MermaidDiagram.of(pipeline.describe(), result);   // paste into a ```mermaid block
+```
+
+See [docs/visualization.md](docs/visualization.md).
 
 ## Observability
 

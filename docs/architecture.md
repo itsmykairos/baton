@@ -71,6 +71,17 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Visualization
+
+- `Pipeline.describe()` is implemented by `DefaultPipeline` from its definition. It
+  includes resolved stage options and nested descriptions; nested pipelines that
+  cannot describe themselves are left out.
+- Rendering lives in the optional `baton-visualize` module, which depends on
+  `baton-api` only.
+- `MermaidDiagram` emits flowchart text. Edges target each parallel stage rather than
+  the layer's box, because Mermaid only honours a box's layout when nothing links to
+  the box itself.
+
 ## Conditional stages
 
 - Before a layer submits anything, `settleBeforeStart` decides each stage's fate:

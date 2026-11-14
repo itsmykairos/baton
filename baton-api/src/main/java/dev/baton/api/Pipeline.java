@@ -65,6 +65,20 @@ public interface Pipeline {
     }
 
     /**
+     * Describes this pipeline's structure: its layers and stages with their resolved
+     * options, required inputs and nested pipelines. Render it as a diagram with the
+     * optional {@code baton-visualize} module.
+     *
+     * @return the description
+     * @throws UnsupportedOperationException if this implementation cannot describe
+     *         itself; the built-in runtime always can
+     */
+    default dev.baton.api.description.PipelineDescription describe() {
+        throw new UnsupportedOperationException(
+                getClass().getName() + " cannot describe its structure");
+    }
+
+    /**
      * Creates a builder from the runtime found by {@link PipelineProvider#load()}.
      *
      * @return a new builder

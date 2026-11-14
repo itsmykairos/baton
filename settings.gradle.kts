@@ -20,6 +20,7 @@ include(
     "baton-testkit",
     "baton-micrometer",
     "baton-opentelemetry",
+    "baton-visualize",
     "baton-integration-tests",
     "baton-benchmarks",
     "baton-examples"

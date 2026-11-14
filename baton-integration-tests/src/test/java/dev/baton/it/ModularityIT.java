@@ -44,7 +44,7 @@ class ModularityIT {
         Module apiModule = layer.findModule("dev.baton.api").orElseThrow();
         assertThat(apiModule.getDescriptor().exports())
                 .extracting(ModuleDescriptor.Exports::source)
-                .containsExactlyInAnyOrder("dev.baton.api", "dev.baton.api.event");
+                .containsExactlyInAnyOrder("dev.baton.api", "dev.baton.api.event", "dev.baton.api.description");
 
         Class<?> providerType = apiModule.getClassLoader().loadClass("dev.baton.api.PipelineProvider");
         assertThat(ServiceLoader.load(layer, providerType).findFirst()).isPresent();

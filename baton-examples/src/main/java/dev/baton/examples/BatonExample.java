@@ -12,6 +12,7 @@ import dev.baton.api.Stage;
 import dev.baton.api.StageContext;
 import dev.baton.api.StageOptions;
 import dev.baton.api.StageResult;
+import dev.baton.visualize.MermaidDiagram;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>a timeout for the whole run;</li>
  *   <li>conditional stages: one skipped by a condition, one by a missing input;</li>
  *   <li>one application-wide {@link BatonConfig} shared by every pipeline;</li>
+ *   <li>a Mermaid diagram of the pipeline and the run, with {@code --args=--mermaid}.</li>
  *   <li>a nested pipeline whose stages are reported as children.</li>
  * </ul>
  *
@@ -116,6 +118,13 @@ public final class BatonExample {
         System.out.println("Customer: " + result.context().get(CUSTOMER));
         System.out.println("Receipt: " + result.context().get(RECEIPT));
         System.out.println("Recommendation: " + result.context().get(RECOMMENDATION));
+
+        if (List.of(args).contains("--mermaid")) {
+            System.out.println();
+            System.out.println("```mermaid");
+            System.out.print(MermaidDiagram.of(checkout.describe(), result));
+            System.out.println("```");
+        }
     }
 
     /** Prices each item in a forked child task and joins them all before returning. */

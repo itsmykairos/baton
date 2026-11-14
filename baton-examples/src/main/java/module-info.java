@@ -4,4 +4,5 @@
  */
 module dev.baton.examples {
     requires dev.baton.api;
+    requires dev.baton.visualize;
 }

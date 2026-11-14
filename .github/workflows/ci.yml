@@ -18,6 +18,8 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+      # Fails fast on unformatted code; fix locally with ./gradlew spotlessApply.
+      - run: ./gradlew spotlessCheck
       # Compiles, runs every test, checks Javadoc and the recorded public API (apiCheck).
       - run: ./gradlew build
       # The engine is concurrent: repeat the core tests to surface races.

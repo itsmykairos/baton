@@ -306,6 +306,7 @@ System.out.println(PipelineResults.describe(result));
 ```bash
 ./gradlew build                    # compile, test, Javadoc, and the recorded public API (apiCheck)
 ./gradlew apiDump                  # record an intended public API change in api/<module>.api
+./gradlew spotlessApply            # format the code (build fails on unformatted code)
 ./gradlew :baton-examples:run      # the checkout example, on the module path
 ./gradlew :baton-benchmarks:jmh    # engine benchmarks (~2 minutes)
 ```

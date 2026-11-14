@@ -14,7 +14,8 @@ user-facing behaviour, and `docs/` holds the design notes:
 Gradle 9 wrapper, Java 21 toolchain. Configuration cache and build cache are on.
 
 ```bash
-./gradlew build                                   # compile, all tests, Javadoc (warnings fail public modules)
+./gradlew build                                   # compile, all tests, Javadoc (warnings fail public modules), spotlessCheck, apiCheck
+./gradlew spotlessApply                           # format Java sources (palantir-java-format) and build files
 ./gradlew :baton-core:test                        # one module's tests
 ./gradlew :baton-core:test --tests '*NestedPipelineTest'                                # one class
 ./gradlew :baton-core:test --tests '*NestedPipelineTest.childInheritsNestedStageDeadline'  # one method
@@ -156,6 +157,10 @@ Separates the **logical outcome** from **physical worker exit** (`WorkerLifecycl
     module except core and the BOM.
 - `apiCheck` is part of `check`, so `build` fails on any unrecorded public API change.
   Run `apiDump` and commit the `.api` file when the change is intended.
+- Spotless formats every module's Java sources with palantir-java-format (4 spaces, 120
+  columns, Javadoc left alone) and trims whitespace in build files and workflows.
+  `spotlessCheck` is part of `check`, so run `./gradlew spotlessApply` before committing.
+  Formatter and plugin versions are in `gradle/libs.versions.toml`.
 - Coordinates are `io.github.kairos-tools:<module>`, with `group` and `version` in
   `gradle.properties`. Java packages stay `dev.baton.*`.
 - CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. Releases are

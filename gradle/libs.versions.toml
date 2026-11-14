@@ -7,6 +7,9 @@ jmh = "1.37"
 slf4j = "2.0.20"
 logback = "1.5.38"
 spring-boot = "4.1.2"
+palantir-java-format = "2.102.0"
+spotless = "8.10.4"
+maven-publish = "0.37.0"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -28,3 +31,7 @@ spring-boot-actuator = { module = "org.springframework.boot:spring-boot-actuator
 spring-boot-actuator-autoconfigure = { module = "org.springframework.boot:spring-boot-actuator-autoconfigure", version.ref = "spring-boot" }
 spring-boot-test = { module = "org.springframework.boot:spring-boot-test", version.ref = "spring-boot" }
 spring-boot-configuration-processor = { module = "org.springframework.boot:spring-boot-configuration-processor", version.ref = "spring-boot" }
+
+[plugins]
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }

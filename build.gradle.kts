@@ -1,3 +1,4 @@
+import com.diffplug.gradle.spotless.SpotlessExtension
 import com.vanniktech.maven.publish.JavaLibrary
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
@@ -11,7 +12,8 @@ import javax.inject.Inject
 
 plugins {
     base
-    id("com.vanniktech.maven.publish") version "0.37.0" apply false
+    alias(libs.plugins.maven.publish) apply false
+    alias(libs.plugins.spotless)
 }
 
 // group and version come from gradle.properties.
@@ -29,12 +31,36 @@ val published = mapOf(
     "baton-spring-boot-starter" to "Spring Boot auto-configuration for Baton.",
 )
 
+val palantirJavaFormatVersion = libs.versions.palantir.java.format.get()
+
+// Build scripts, workflows and config: whitespace only.
+spotless {
+    format("misc") {
+        target("*.gradle.kts", "*/*.gradle.kts", "gradle/*.toml", ".github/**/*.yml", ".gitignore", "*.properties")
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
 /** Published modules whose public API is recorded in api/<module>.api (core exports none). */
 val apiChecked = published.keys - setOf("baton-bom", "baton-core")
 
 subprojects {
     group = rootProject.group
     version = rootProject.version
+
+    // Every Java source set is formatted with palantir-java-format; `check` runs spotlessCheck.
+    plugins.withId("java") {
+        apply(plugin = "com.diffplug.spotless")
+        extensions.configure<SpotlessExtension> {
+            java {
+                target("src/**/*.java")
+                palantirJavaFormat(palantirJavaFormatVersion).formatJavadoc(false)
+                trimTrailingWhitespace()
+                endWithNewline()
+            }
+        }
+    }
 
     plugins.withId("java") {
         extensions.configure<JavaPluginExtension> {

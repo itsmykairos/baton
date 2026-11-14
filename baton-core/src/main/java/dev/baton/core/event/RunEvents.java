@@ -51,20 +51,27 @@ public final class RunEvents {
      * otherwise a run with its own asynchronous dispatcher.
      */
     public static RunEvents create(String pipelineName, List<PipelineListener> listeners, BatonConfig config) {
+        return create(pipelineName, listeners, config, newRunId());
+    }
+
+    /** As {@link #create(String, List, BatonConfig)}, with a run id chosen by the caller. */
+    public static RunEvents create(String pipelineName, List<PipelineListener> listeners, BatonConfig config,
+                                   UUID runId) {
         Objects.requireNonNull(pipelineName, "pipelineName");
+        Objects.requireNonNull(runId, "runId");
         if (listeners.isEmpty()) {
             return NONE;
         }
         AsyncEventDispatcher dispatcher = new AsyncEventDispatcher(listeners, config.eventBufferCapacity(),
                 config.eventBatchInterval(), config.eventOverflowPolicy(), config.listenerErrorHandler());
-        return new RunEvents(dispatcher, newRunId(), pipelineName, config.clock());
+        return new RunEvents(dispatcher, runId, pipelineName, config.clock());
     }
 
     /**
      * A random (version 4) UUID from {@link ThreadLocalRandom}. Run ids only need to
      * be unique, not unpredictable, so this avoids {@code SecureRandom} on every run.
      */
-    static UUID newRunId() {
+    public static UUID newRunId() {
         ThreadLocalRandom random = ThreadLocalRandom.current();
         long most = (random.nextLong() & ~0xF000L) | 0x4000L;               // version 4
         long least = (random.nextLong() & ~(0x3L << 62)) | (0x2L << 62);    // IETF variant

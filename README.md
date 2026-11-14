@@ -17,6 +17,7 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 | `baton-micrometer` | Optional: run and stage metrics for Micrometer. | `implementation` |
 | `baton-opentelemetry` | Optional: one trace per run, one span per stage, for OpenTelemetry. | `implementation` |
 | `baton-visualize` | Optional: Mermaid diagrams of pipelines and runs. | `implementation` |
+| `baton-slf4j` | Optional: carries the SLF4J MDC into stage threads, with run and stage keys. | `implementation` |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
@@ -164,6 +165,24 @@ static final BatonConfig APP = BatonConfig.builder()
 Every key conflict is listed in `PipelineResult.conflicts()` and sent as a
 `ContextConflict` event. [docs/configuration.md](docs/configuration.md) lists every
 setting, its scope and precedence, and how to choose a flatten depth.
+
+## Context propagation
+
+Stage code runs on other threads than the caller, so thread-bound context is carried
+across by `ContextPropagator`s registered in `BatonConfig`. Context is captured at
+every hop (caller, run, stage, child task, nested pipeline) and restored around the
+work.
+
+```java
+BatonConfig.builder()
+        .contextPropagator(new MdcContextPropagator())                         // log MDC + run/stage keys
+        .contextPropagator(new OpenTelemetryContextPropagator(openTelemetry))  // live run and stage spans
+        .build();
+
+BatonContext.current();   // inside a stage: run id, pipeline, stage path
+```
+
+See [docs/propagation.md](docs/propagation.md).
 
 ## Visualization
 

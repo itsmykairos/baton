@@ -71,6 +71,19 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Context propagation
+
+- `Propagation` (core) wraps every hop: run, stage, timed attempt, child task,
+  condition and fallback.
+  - It captures the configured `ContextPropagator`s on the submitting thread, restores
+    them on the thread doing the work, and undoes them in reverse order.
+  - `BatonContext.PROPAGATOR` always comes first. With no other propagators, a shared
+    snapshot and a direct thread-local set keep the overhead small.
+- A nested pipeline's engine coordinates on the nested stage's worker thread, so its
+  stage submissions capture the nested stage's restored context. This is what makes
+  live spans and MDC stage keys nest.
+- Every run has a run id, shared by `BatonContext`, events and propagators.
+
 ## Visualization
 
 - `Pipeline.describe()` is implemented by `DefaultPipeline` from its definition. It

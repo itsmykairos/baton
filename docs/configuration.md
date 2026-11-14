@@ -43,7 +43,7 @@ From lowest to highest:
 
 | Scope | Settings | Where they come from |
 |---|---|---|
-| **Run** | thread factory, all event settings, clock, listener error handler | the outermost run; they apply to nested pipelines too |
+| **Run** | thread factory, all event settings, clock, listener error handler, context propagators | the outermost run; they apply to nested pipelines too |
 | **Pipeline** | everything else | each pipeline's own config. A nested pipeline keeps its own, and a run's config overlays only the outermost pipeline |
 
 ## Settings
@@ -138,6 +138,7 @@ Depth only affects speed and memory. Every depth gives exactly the same context.
 | `notifyNestedListeners(boolean)` | `false` | `true` also sends a nested pipeline's events to its own builder listeners, with paths relative to it and its own run id |
 | `clock(Clock)` | system UTC | event timestamps only; durations always use `nanoTime` |
 | `defaultPipelineName(String)` | `"pipeline"` | name of pipelines built without `Builder.name` |
+| `contextPropagator(ContextPropagator)` | none | carries thread-bound context (MDC, tracing, …) into stage threads. Unlike other settings, propagators **accumulate** across layers. See [propagation.md](propagation.md) |
 
 ## Not configurable
 

@@ -22,6 +22,8 @@ import dev.baton.api.TypeClashPolicy;
 import dev.baton.api.WorkerTermination;
 import dev.baton.core.DefaultPipeline;
 import dev.baton.api.event.StagePath;
+import dev.baton.api.propagation.ExecutionScope;
+import dev.baton.api.propagation.Restoration;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.LayerDefinition;
@@ -83,6 +85,8 @@ final class ExecutionEngine {
     private final StagePath parentPath;
     /** Receives conflicts recorded here, so parents can report their children's too. */
     private final Consumer<KeyConflict> parentConflicts;
+    /** Carries the run's thread-bound context into every stage, child task and attempt. */
+    private final Propagation propagation;
 
     private final Object state = new Object();
     private ContextView context;
@@ -102,10 +106,11 @@ final class ExecutionEngine {
             ExecutionControl control,
             RunEvents events,
             Deadline runDeadline,
-            BatonConfig config
+            BatonConfig config,
+            Propagation propagation
     ) {
         this(definition, executor, deadlines, control, runDeadline, config, config,
-                List.of(new Observer(events, null)), null, null);
+                List.of(new Observer(events, null)), null, null, propagation);
     }
 
     private ExecutionEngine(
@@ -118,7 +123,8 @@ final class ExecutionEngine {
             BatonConfig runConfig,
             List<Observer> observers,
             StagePath parentPath,
-            Consumer<KeyConflict> parentConflicts
+            Consumer<KeyConflict> parentConflicts,
+            Propagation propagation
     ) {
         this.definition = Objects.requireNonNull(definition, "definition");
         this.executor = Objects.requireNonNull(executor, "executor");
@@ -131,6 +137,7 @@ final class ExecutionEngine {
         this.eventsEnabled = this.observers.stream().anyMatch(observer -> observer.events().enabled());
         this.parentPath = parentPath;
         this.parentConflicts = parentConflicts;
+        this.propagation = Objects.requireNonNull(propagation, "propagation");
     }
 
     DefaultPipelineResult execute(ContextView input) {
@@ -406,12 +413,14 @@ final class ExecutionEngine {
                 .map(inherited::min)
                 .orElse(inherited);
 
-        StageRun run = new StageRun();
+        StageRun run = new StageRun(pathOf(node.id()));
         TrackedTask<StageExecution> task = TrackedTask.submit(
                 executor,
                 deadline,
                 deadlines,
-                () -> runAttempts(node, context, deadline, run),
+                // Captured here, on the coordinating thread; restored on the stage's thread.
+                propagation.wrap(() -> runAttempts(node, context, deadline, run),
+                        propagation.scope(ExecutionScope.Kind.STAGE, run.path)),
                 run.cancel::run,
                 registered -> {
                     run.self = registered;
@@ -481,7 +490,8 @@ final class ExecutionEngine {
                 executor,
                 attemptDeadline,
                 deadlines,
-                () -> attemptBody(node, context, attemptDeadline, run, attemptCancel),
+                propagation.wrap(() -> attemptBody(node, context, attemptDeadline, run, attemptCancel),
+                        propagation.scope(ExecutionScope.Kind.ATTEMPT, run.path)),
                 attemptCancel::run
         );
         run.cancel.set(attemptTask::cancel);
@@ -535,7 +545,8 @@ final class ExecutionEngine {
             }
             ExecutionEngine childEngine = new ExecutionEngine(
                     childDefinition, executor, deadlines, childControl, childDeadline,
-                    childConfig, runConfig, childObservers, pathOf(node.id()), this::recordChildConflict);
+                    childConfig, runConfig, childObservers, pathOf(node.id()), this::recordChildConflict,
+                    propagation);
             run.childEngine = childEngine;
             cancel.set(childControl::cancel);
             if (run.isDone()) {
@@ -544,8 +555,15 @@ final class ExecutionEngine {
             }
             return executeNestedBody(childEngine, context, ownEvents);
         }
+        TaskWrapper inStageContext = new TaskWrapper() {
+            @Override
+            public <T> java.util.concurrent.Callable<T> wrap(java.util.concurrent.Callable<T> task) {
+                // Called by fork() on the stage's thread, so the stage's context is captured.
+                return propagation.wrap(task, propagation.scope(ExecutionScope.Kind.CHILD_TASK, run.path));
+            }
+        };
         DefaultStageTasks childTasks = new DefaultStageTasks(executor, deadline, deadlines,
-                config.maxChildTasks(), config.unjoinedChildFailure());
+                config.maxChildTasks(), config.unjoinedChildFailure(), inStageContext);
         cancel.set(childTasks::close);
         if (run.isDone()) {
             childTasks.close();
@@ -705,7 +723,8 @@ final class ExecutionEngine {
             return result;
         }
         Throwable failure = result.failure().orElse(null);
-        try {
+        try (Restoration ignored = propagation.capture()
+                .restore(propagation.scope(ExecutionScope.Kind.FALLBACK, pathOf(node.id())))) {
             ContextPatch patch = Objects.requireNonNull(fallback.recover(context, failure),
                     "Fallback returned a null ContextPatch: " + node.id());
             return new DefaultStageResult(result.stageId(), StageStatus.RECOVERED, result.duration(),
@@ -737,7 +756,8 @@ final class ExecutionEngine {
         if (condition == null) {
             return null;
         }
-        try {
+        try (Restoration ignored = propagation.capture()
+                .restore(propagation.scope(ExecutionScope.Kind.CONDITION, pathOf(node.id())))) {
             return condition.test(context) ? null : skipped(node);
         } catch (Throwable failure) {
             StageResult failed = new DefaultStageResult(node.id(), StageStatus.FAILED, Duration.ZERO,
@@ -1073,10 +1093,15 @@ final class ExecutionEngine {
 
     /** State shared by a stage's coordinator and its worker across attempts. */
     private static final class StageRun {
+        final StagePath path;
         final AtomicInteger attempts = new AtomicInteger();
         final CancelSlot cancel = new CancelSlot();
         volatile ExecutionEngine childEngine;
         volatile TrackedTask<?> self;
+
+        StageRun(StagePath path) {
+            this.path = path;
+        }
 
         boolean isDone() {
             TrackedTask<?> task = self;

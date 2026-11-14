@@ -1,7 +1,11 @@
 package dev.baton.api;
 
+import dev.baton.api.propagation.ContextPropagator;
+
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadFactory;
@@ -22,7 +26,8 @@ import java.util.concurrent.ThreadFactory;
  * </ol>
  *
  * <p><b>Scope in nested pipelines.</b> <em>Run-scoped</em> settings (thread factory,
- * event settings, clock, listener error handler) come from the outermost run and
+ * event settings, clock, listener error handler, context propagators) come from the
+ * outermost run and
  * apply to nested pipelines too. Every other setting is <em>pipeline-scoped</em>: a
  * nested pipeline uses its own config, and a run's config overlays only the
  * outermost pipeline.</p>
@@ -70,6 +75,7 @@ public final class BatonConfig {
     private final Boolean notifyNestedListeners;
     private final Clock clock;
     private final String defaultPipelineName;
+    private final List<ContextPropagator<?>> contextPropagators;
 
     private BatonConfig(Builder builder) {
         contextFlattenDepth = builder.contextFlattenDepth;
@@ -90,6 +96,7 @@ public final class BatonConfig {
         notifyNestedListeners = builder.notifyNestedListeners;
         clock = builder.clock;
         defaultPipelineName = builder.defaultPipelineName;
+        contextPropagators = List.copyOf(builder.contextPropagators);
     }
 
     /** {@return a config that sets nothing, so every setting has its built-in default} */
@@ -137,6 +144,8 @@ public final class BatonConfig {
         merged.notifyNestedListeners = pick(overrides.notifyNestedListeners, notifyNestedListeners);
         merged.clock = pick(overrides.clock, clock);
         merged.defaultPipelineName = pick(overrides.defaultPipelineName, defaultPipelineName);
+        // Propagators accumulate across layers rather than replace each other.
+        merged.contextPropagators.addAll(overrides.contextPropagators);
         return new BatonConfig(merged);
     }
 
@@ -267,6 +276,15 @@ public final class BatonConfig {
         return clock != null ? clock : Clock.systemUTC();
     }
 
+    /**
+     * {@return the context propagators (run-scoped), in registration order; default
+     * none. Unlike other settings they accumulate across layers: app, pipeline and
+     * run propagators all apply}
+     */
+    public List<ContextPropagator<?>> contextPropagators() {
+        return contextPropagators;
+    }
+
     /** {@return the name of pipelines built without {@link Pipeline.Builder#name}; default "pipeline"} */
     public String defaultPipelineName() {
         return defaultPipelineName != null ? defaultPipelineName : DEFAULT_PIPELINE_NAME;
@@ -293,6 +311,7 @@ public final class BatonConfig {
         private Boolean notifyNestedListeners;
         private Clock clock;
         private String defaultPipelineName;
+        private final List<ContextPropagator<?>> contextPropagators = new ArrayList<>();
 
         private Builder() {
         }
@@ -316,6 +335,7 @@ public final class BatonConfig {
             notifyNestedListeners = config.notifyNestedListeners;
             clock = config.clock;
             defaultPipelineName = config.defaultPipelineName;
+            contextPropagators.addAll(config.contextPropagators);
         }
 
         /**
@@ -539,6 +559,19 @@ public final class BatonConfig {
                 throw new IllegalArgumentException("name must not be blank");
             }
             this.defaultPipelineName = name;
+            return this;
+        }
+
+        /**
+         * Adds a context propagator. Propagators restore in registration order and
+         * undo in reverse order.
+         *
+         * @param propagator the propagator
+         * @return this builder
+         * @see ContextPropagator
+         */
+        public Builder contextPropagator(ContextPropagator<?> propagator) {
+            contextPropagators.add(Objects.requireNonNull(propagator, "propagator"));
             return this;
         }
 

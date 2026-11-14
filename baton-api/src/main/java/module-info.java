@@ -8,6 +8,7 @@ module dev.baton.api {
     exports dev.baton.api;
     exports dev.baton.api.event;
     exports dev.baton.api.description;
+    exports dev.baton.api.propagation;
 
     uses dev.baton.api.PipelineProvider;
 }

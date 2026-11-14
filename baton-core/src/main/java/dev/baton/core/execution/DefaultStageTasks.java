@@ -26,6 +26,7 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
     /** Limits concurrently running children; null when unlimited. */
     private final Semaphore slots;
     private final UnjoinedChildFailurePolicy unjoinedFailure;
+    private final TaskWrapper wrapper;
     private boolean closed;
 
     DefaultStageTasks(
@@ -33,7 +34,8 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             Deadline deadline,
             DeadlineScheduler deadlines
     ) {
-        this(executor, deadline, deadlines, BatonConfig.UNLIMITED, UnjoinedChildFailurePolicy.FAIL_STAGE);
+        this(executor, deadline, deadlines, BatonConfig.UNLIMITED, UnjoinedChildFailurePolicy.FAIL_STAGE,
+                TaskWrapper.NONE);
     }
 
     DefaultStageTasks(
@@ -41,13 +43,15 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             Deadline deadline,
             DeadlineScheduler deadlines,
             int maxChildTasks,
-            UnjoinedChildFailurePolicy unjoinedFailure
+            UnjoinedChildFailurePolicy unjoinedFailure,
+            TaskWrapper wrapper
     ) {
         this.executor = Objects.requireNonNull(executor, "executor");
         this.deadline = Objects.requireNonNull(deadline, "deadline");
         this.deadlines = Objects.requireNonNull(deadlines, "deadlines");
         this.slots = maxChildTasks == BatonConfig.UNLIMITED ? null : new Semaphore(maxChildTasks);
         this.unjoinedFailure = Objects.requireNonNull(unjoinedFailure, "unjoinedFailure");
+        this.wrapper = Objects.requireNonNull(wrapper, "wrapper");
     }
 
     @Override
@@ -71,7 +75,7 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
                 executor,
                 deadline,
                 deadlines,
-                body
+                wrapper.wrap(body)
         );
         TrackedTaskHandle<T> handle = new TrackedTaskHandle<>(tracked);
         handles.add(handle);

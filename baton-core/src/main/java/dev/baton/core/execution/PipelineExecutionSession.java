@@ -8,6 +8,8 @@ import dev.baton.api.PipelineRunStatus;
 import dev.baton.api.PipelineStatus;
 import dev.baton.api.RunOptions;
 import dev.baton.api.event.PipelineListener;
+import dev.baton.api.propagation.ExecutionScope;
+import dev.baton.api.propagation.Restoration;
 import dev.baton.core.deadline.Deadline;
 import dev.baton.core.deadline.DeadlineScheduler;
 import dev.baton.core.definition.PipelineDefinition;
@@ -17,6 +19,7 @@ import dev.baton.core.result.DefaultPipelineResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -37,6 +40,7 @@ public final class PipelineExecutionSession implements PipelineRun {
     private final Object completionLock = new Object();
     private final ExecutionEngine engine;
     private final RunEvents events;
+    private final Propagation propagation;
 
     public PipelineExecutionSession(PipelineDefinition definition, ContextView input) {
         this(definition, input, RunOptions.defaults());
@@ -51,11 +55,14 @@ public final class PipelineExecutionSession implements PipelineRun {
         this.executor = Executors.newThreadPerTaskExecutor(config.threadFactory());
         List<PipelineListener> listeners = new ArrayList<>(definition.listeners());
         listeners.addAll(options.listeners());
-        this.events = RunEvents.create(definition.name(), listeners, config);
+        UUID runId = RunEvents.newRunId();
+        this.events = RunEvents.create(definition.name(), listeners, config, runId);
+        this.propagation = new Propagation(runId, definition.name(), config.contextPropagators());
         Deadline runDeadline = config.runTimeout()
                 .map(Deadline::after)
                 .orElseGet(Deadline::unlimited);
-        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline, config);
+        this.engine = new ExecutionEngine(definition, executor, deadlines, control, events, runDeadline, config,
+                propagation);
     }
 
     public PipelineResult executeSync() throws InterruptedException {
@@ -63,8 +70,9 @@ public final class PipelineExecutionSession implements PipelineRun {
             throw new IllegalStateException("Execution session already started");
         }
         events.runStarted();
+        Propagation.Snapshot caller = propagation.capture();
         try {
-            PipelineResult result = executeEngine();
+            PipelineResult result = executeEngine(caller);
             complete(result);
             return result;
         } catch (RuntimeException | Error failure) {
@@ -81,9 +89,11 @@ public final class PipelineExecutionSession implements PipelineRun {
             throw new IllegalStateException("Execution session already started");
         }
         events.runStarted();
+        // Captured on the caller's thread, restored on the run's coordinating thread.
+        Propagation.Snapshot caller = propagation.capture();
         Thread.ofVirtual().name("baton-pipeline").start(() -> {
             try {
-                PipelineResult result = executeEngine();
+                PipelineResult result = executeEngine(caller);
                 complete(result);
             } catch (Throwable failure) {
                 boolean cancelled = control.isCancelled();
@@ -97,8 +107,22 @@ public final class PipelineExecutionSession implements PipelineRun {
         });
     }
 
-    private PipelineResult executeEngine() {
-        return engine.execute(input);
+    /** Runs the engine with the caller's context restored for the run. */
+    private PipelineResult executeEngine(Propagation.Snapshot caller) {
+        try (Restoration restoration = caller.restore(propagation.scope(ExecutionScope.Kind.RUN, null))) {
+            PipelineResult result;
+            try {
+                result = engine.execute(input);
+            } catch (RuntimeException | Error failure) {
+                restoration.failed(failure);
+                throw failure;
+            }
+            if (result.status() != PipelineStatus.COMPLETED) {
+                restoration.failed(result.failure().orElseGet(
+                        () -> new IllegalStateException("Pipeline ended " + result.status())));
+            }
+            return result;
+        }
     }
 
     /** Keeps the stages and context reached before an unexpected engine failure. */

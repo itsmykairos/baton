@@ -72,6 +72,16 @@ With configuration in place, the engine benchmarks at default settings:
 All are within noise of the numbers above. The conflict resolver allocates nothing
 unless a conflict must drop or fail a write.
 
+## Context propagation
+
+`BatonContext.current()` is always on, so each stage carries a scope and its path.
+- `sequential10`: 49.8 µs → 51.4 µs, and 23.8 KB → 27.3 KB.
+- `parallel100`: 72.9 µs → 79.4 µs, and 164 KB → 192 KB.
+
+That's about 0.1 µs and 280 bytes per stage. With no other propagators configured, a
+shared snapshot and a direct thread-local set avoid the general capture and restore
+machinery.
+
 ## Known costs, not changed
 
 - **Timeouts:** about 2.4 µs per stage with a timeout, to register and cancel its

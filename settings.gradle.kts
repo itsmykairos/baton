@@ -21,6 +21,7 @@ include(
     "baton-micrometer",
     "baton-opentelemetry",
     "baton-visualize",
+    "baton-slf4j",
     "baton-integration-tests",
     "baton-benchmarks",
     "baton-examples"

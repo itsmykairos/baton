@@ -68,8 +68,8 @@ result.context().get(TOTAL);                                     // 42
 
 **Required inputs**
 - A stage lists the keys it needs in `requiredReads()`.
-- If any of them is missing when the stage would start, the stage is `BLOCKED`. A
-  BLOCKED stage never stops the run.
+- If any of them is missing when the stage would start, the stage is `BLOCKED`, or
+  `SKIPPED` with `skipIfInputsMissing()`. Neither stops the run.
 
 **Timeouts and cancellation**
 - A stage timeout covers the stage, its child tasks and any nested pipeline it runs.
@@ -111,6 +111,22 @@ pipeline.run(input, RunOptions.defaults().withTimeout(Duration.ofSeconds(2)));  
     the run ends `TIMED_OUT`.
   - A nested pipeline's own timeout also applies when it runs nested, capped by the
     nested stage's deadline.
+
+**Conditional stages**
+
+```java
+StageOptions.defaults().withCondition(context -> context.get(TOTAL) > 10_000);  // run only if true
+StageOptions.defaults().skipIfInputsMissing();          // missing requiredReads → SKIPPED, not BLOCKED
+```
+
+- A stage that doesn't run because of either option is reported `SKIPPED`. It never
+  starts, so it has no `StageStarted` event and `attempts()` is 0.
+- SKIPPED counts as success and never triggers FAIL_FAST. Stages that need a skipped
+  stage's output are BLOCKED, or SKIPPED too if they also skip on missing inputs.
+- Conditions are evaluated just before the stage would start, against the context it
+  would read, so they see values written by earlier layers. They should be quick.
+- A condition that throws makes the stage FAILED, and the fallback and failure policy
+  apply as usual. Under FAIL_FAST, no stage of that parallel layer starts.
 
 **Child tasks**
 - Forked children cannot outlive their stage. When the stage returns, unfinished

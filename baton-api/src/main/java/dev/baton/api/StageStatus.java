@@ -25,7 +25,12 @@ public enum StageStatus {
      * missing from the context. Does not trigger {@link FailurePolicy#FAIL_FAST}.
      */
     BLOCKED,
-    /** Reserved for future use; not currently produced. */
+    /**
+     * The stage was deliberately not run: its {@link StageOptions#withCondition
+     * condition} was false, or an input was missing and it was set to
+     * {@link StageOptions#skipIfInputsMissing() skip}. Counts as success; never
+     * triggers {@link FailurePolicy#FAIL_FAST}.
+     */
     SKIPPED,
     /** The run was cancelled, or a FAIL_FAST sibling in the same layer failed. */
     CANCELLED

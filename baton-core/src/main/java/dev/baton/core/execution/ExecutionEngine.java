@@ -255,13 +255,35 @@ final class ExecutionEngine {
         LinkedBlockingQueue<Integer> finished = new LinkedBlockingQueue<>();
         int pending = 0;
 
+        // Settle stages that will not run (blocked, skipped, failed condition) before
+        // submitting any; a FAIL_FAST condition failure then starts nothing.
+        StageResult trigger = null;
+        for (int i = 0; i < size; i++) {
+            StageResult settled = settleBeforeStart(stages.get(i), context);
+            if (settled != null) {
+                record(layerResults, i, settled);
+                if (trigger == null && stopsPipeline(stages.get(i), settled)) {
+                    trigger = settled;
+                }
+            }
+        }
+        if (trigger != null) {
+            for (int i = 0; i < size; i++) {
+                if (layerResults[i] == null) {
+                    record(layerResults, i, cancelledBeforeStart(stages.get(i)));
+                }
+            }
+            return new LayerOutcome(List.of(layerResults), trigger, startedAt);
+        }
+
         // Submit all runnable stages before observing any result.
         for (int i = 0; i < size; i++) {
             StageNode stage = stages.get(i);
+            if (layerResults[i] != null) {
+                continue;
+            }
             if (control.isCancelled()) {
                 record(layerResults, i, cancelledBeforeStart(stage));
-            } else if (!hasRequiredInputs(stage, context)) {
-                record(layerResults, i, blocked(stage));
             } else {
                 try {
                     int index = i;
@@ -287,7 +309,6 @@ final class ExecutionEngine {
         // Observe stages in completion order so a FAIL_FAST failure can cancel
         // siblings immediately. Results are stored at their definition index.
         // A timeout/cancel completes logically even when the worker is still running.
-        StageResult trigger = null;
         try {
             while (pending > 0) {
                 int i = finished.take();
@@ -639,6 +660,29 @@ final class ExecutionEngine {
         return new TimeoutException("Pipeline deadline expired");
     }
 
+    /**
+     * Decides, without starting the stage, whether it will run. Returns its result
+     * if it will not: BLOCKED or SKIPPED for missing inputs, SKIPPED for a false
+     * condition, or FAILED (possibly RECOVERED by the fallback) if the condition
+     * threw. Returns null if the stage should be submitted.
+     */
+    private StageResult settleBeforeStart(StageNode node, ContextView context) {
+        if (!hasRequiredInputs(node, context)) {
+            return node.options().skipsIfInputsMissing() ? skipped(node) : blocked(node);
+        }
+        var condition = node.options().condition().orElse(null);
+        if (condition == null) {
+            return null;
+        }
+        try {
+            return condition.test(context) ? null : skipped(node);
+        } catch (Throwable failure) {
+            StageResult failed = new DefaultStageResult(node.id(), StageStatus.FAILED, Duration.ZERO,
+                    failure, null, WorkerTermination.NOT_STARTED, List.of(), 0);
+            return withFallback(node, context, failed);
+        }
+    }
+
     private boolean hasRequiredInputs(StageNode node, ContextView context) {
         return context.keys().containsAll(node.requiredReads());
     }
@@ -732,6 +776,11 @@ final class ExecutionEngine {
     private static void putUntyped(ContextPatch.Builder builder, ContextKey<?> key, ContextView view) {
         ContextKey<Object> untyped = (ContextKey<Object>) key;
         builder.put(untyped, view.get(untyped));
+    }
+
+    private StageResult skipped(StageNode node) {
+        return new DefaultStageResult(node.id(), StageStatus.SKIPPED, Duration.ZERO,
+                null, null, WorkerTermination.NOT_STARTED, List.of(), 0);
     }
 
     private StageResult blocked(StageNode node) {

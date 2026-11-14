@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>a slow optional stage recovered by a fallback after its timeout;</li>
  *   <li>a flaky payment call retried with backoff;</li>
  *   <li>a timeout for the whole run;</li>
+ *   <li>conditional stages: one skipped by a condition, one by a missing input;</li>
  *   <li>a nested pipeline whose stages are reported as children.</li>
  * </ul>
  *
@@ -40,6 +41,7 @@ public final class BatonExample {
     static final ContextKey<String> RECOMMENDATION = ContextKey.of("recommendation", String.class);
     static final ContextKey<String> PAYMENT_ID = ContextKey.of("paymentId", String.class);
     static final ContextKey<String> RECEIPT = ContextKey.of("receipt", String.class);
+    static final ContextKey<String> PHONE = ContextKey.of("phone", String.class);
 
     private BatonExample() {
     }
@@ -84,6 +86,14 @@ public final class BatonExample {
                                     .put(RECOMMENDATION, "none").build()));
                 })
                 .stage("payment", payment.asStage(), StageOptions.defaults().withTimeout(Duration.ofSeconds(2)))
+                .parallel("notify", parallel -> {
+                    // Only large orders get a thank-you call.
+                    parallel.stage("vip-call", context -> ContextPatch.empty(), StageOptions.defaults()
+                            .withCondition(context -> context.get(TOTAL_CENTS) > 10_000));
+                    // Optional: no phone number in this order, so the SMS is skipped, not blocked.
+                    parallel.stage("sms", requires(Set.of(PHONE), context -> ContextPatch.empty()),
+                            StageOptions.defaults().skipIfInputsMissing());
+                })
                 .build();
 
         PipelineResult result = checkout.run(ContextView.builder().put(ORDER_ID, "A-1001").build());

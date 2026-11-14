@@ -57,6 +57,18 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Conditional stages
+
+- Before a layer submits anything, `settleBeforeStart` decides each stage's fate:
+  - missing `requiredReads` → BLOCKED, or SKIPPED with `skipIfInputsMissing()`;
+  - a false condition → SKIPPED;
+  - a condition that throws → FAILED, then the fallback may make it RECOVERED.
+- If a settled result triggers FAIL_FAST, none of the layer's other stages is submitted;
+  they are reported CANCELLED before start.
+- Settled stages have no task, no StageStarted event and 0 attempts.
+- SKIPPED counts as success in `isSuccessful()` (recursively for nested runs) and never
+  triggers a failure policy.
+
 ## Resilience
 
 - A stage's worker runs an attempt loop (`ExecutionEngine.runAttempts`).

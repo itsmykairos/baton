@@ -3,23 +3,28 @@ package dev.baton.api;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /** Per-stage execution options. Immutable; each {@code with} method returns a copy. */
 public final class StageOptions {
 
     private static final StageOptions DEFAULTS =
-            new StageOptions(null, FailurePolicy.FAIL_FAST, RetryPolicy.none(), null);
+            new StageOptions(null, FailurePolicy.FAIL_FAST, RetryPolicy.none(), null, null, false);
 
     private final Duration timeout;
     private final FailurePolicy failurePolicy;
     private final RetryPolicy retry;
     private final StageFallback fallback;
+    private final Predicate<ContextView> condition;
+    private final boolean skipIfInputsMissing;
 
     private StageOptions(
             Duration timeout,
             FailurePolicy failurePolicy,
             RetryPolicy retry,
-            StageFallback fallback
+            StageFallback fallback,
+            Predicate<ContextView> condition,
+            boolean skipIfInputsMissing
     ) {
         if (timeout != null &&
                 (timeout.isZero() || timeout.isNegative())) {
@@ -32,9 +37,14 @@ public final class StageOptions {
         this.failurePolicy = Objects.requireNonNull(failurePolicy, "failurePolicy");
         this.retry = Objects.requireNonNull(retry, "retry");
         this.fallback = fallback;
+        this.condition = condition;
+        this.skipIfInputsMissing = skipIfInputsMissing;
     }
 
-    /** {@return no timeout, {@link FailurePolicy#FAIL_FAST}, no retries and no fallback} */
+    /**
+     * {@return no timeout, {@link FailurePolicy#FAIL_FAST}, no retries, no fallback,
+     * no condition, and BLOCKED when required inputs are missing}
+     */
     public static StageOptions defaults() {
         return DEFAULTS;
     }
@@ -49,7 +59,8 @@ public final class StageOptions {
      * @throws IllegalArgumentException if the timeout is zero or negative
      */
     public StageOptions withTimeout(Duration timeout) {
-        return new StageOptions(Objects.requireNonNull(timeout, "timeout"), failurePolicy, retry, fallback);
+        return new StageOptions(Objects.requireNonNull(timeout, "timeout"), failurePolicy, retry, fallback,
+                condition, skipIfInputsMissing);
     }
 
     /**
@@ -59,7 +70,7 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withFailurePolicy(FailurePolicy failurePolicy) {
-        return new StageOptions(timeout, failurePolicy, retry, fallback);
+        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, skipIfInputsMissing);
     }
 
     /**
@@ -69,7 +80,8 @@ public final class StageOptions {
      * @return a copy with this policy
      */
     public StageOptions withRetry(RetryPolicy retry) {
-        return new StageOptions(timeout, failurePolicy, Objects.requireNonNull(retry, "retry"), fallback);
+        return new StageOptions(timeout, failurePolicy, Objects.requireNonNull(retry, "retry"), fallback,
+                condition, skipIfInputsMissing);
     }
 
     /**
@@ -80,7 +92,37 @@ public final class StageOptions {
      * @see StageFallback
      */
     public StageOptions withFallback(StageFallback fallback) {
-        return new StageOptions(timeout, failurePolicy, retry, Objects.requireNonNull(fallback, "fallback"));
+        return new StageOptions(timeout, failurePolicy, retry, Objects.requireNonNull(fallback, "fallback"),
+                condition, skipIfInputsMissing);
+    }
+
+    /**
+     * Runs the stage only when {@code condition} holds for the context it would read;
+     * otherwise the stage is {@link StageStatus#SKIPPED}.
+     *
+     * <p>The condition is evaluated once, just before the stage would start, on the
+     * thread that coordinates its layer, so it should be quick and side-effect free.
+     * It is checked after {@link Stage#requiredReads()}. If it throws, the stage is
+     * FAILED with that exception (no retries; the fallback and failure policy apply
+     * as usual).</p>
+     *
+     * @param condition true to run the stage
+     * @return a copy with this condition
+     */
+    public StageOptions withCondition(Predicate<ContextView> condition) {
+        return new StageOptions(timeout, failurePolicy, retry, fallback,
+                Objects.requireNonNull(condition, "condition"), skipIfInputsMissing);
+    }
+
+    /**
+     * Reports the stage {@link StageStatus#SKIPPED} instead of
+     * {@link StageStatus#BLOCKED} when a key from {@link Stage#requiredReads()} is
+     * missing, making the stage optional in this pipeline.
+     *
+     * @return a copy that skips on missing inputs
+     */
+    public StageOptions skipIfInputsMissing() {
+        return new StageOptions(timeout, failurePolicy, retry, fallback, condition, true);
     }
 
     /** {@return the timeout, if any} */
@@ -96,6 +138,16 @@ public final class StageOptions {
     /** {@return the retry policy} */
     public RetryPolicy retry() {
         return retry;
+    }
+
+    /** {@return the run condition, if any} */
+    public Optional<Predicate<ContextView>> condition() {
+        return Optional.ofNullable(condition);
+    }
+
+    /** {@return true if missing required inputs make the stage SKIPPED rather than BLOCKED} */
+    public boolean skipsIfInputsMissing() {
+        return skipIfInputsMissing;
     }
 
     /** {@return the fallback, if any} */

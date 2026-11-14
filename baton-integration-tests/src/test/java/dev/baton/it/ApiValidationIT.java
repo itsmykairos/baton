@@ -90,6 +90,8 @@ class ApiValidationIT {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> StageOptions.defaults().withFallback(null))
                 .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> StageOptions.defaults().withCondition(null))
+                .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withTimeout(Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> dev.baton.api.RunOptions.defaults().withEventBufferCapacity(0))

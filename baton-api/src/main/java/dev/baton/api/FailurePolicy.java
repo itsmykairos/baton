@@ -4,7 +4,7 @@ package dev.baton.api;
  * What a stage's failure or timeout means for the rest of the pipeline run.
  *
  * <p>Only {@link StageStatus#FAILED} and {@link StageStatus#TIMED_OUT} trigger a
- * policy. A {@link StageStatus#BLOCKED} stage (missing required inputs) never stops
+ * policy; {@link StageStatus#SKIPPED} and {@link StageStatus#RECOVERED} never do. A {@link StageStatus#BLOCKED} stage (missing required inputs) never stops
  * the run, under either policy; the run can then end {@link PipelineStatus#COMPLETED}
  * while {@link PipelineResult#isSuccessful()} is false.</p>
  */

@@ -25,9 +25,9 @@ public interface PipelineResult {
     List<StageResult> stages();
 
     /**
-     * True only if the pipeline completed successfully: every stage SUCCEEDED or
-     * was RECOVERED by its fallback, with no failed, blocked, timed-out or
-     * cancelled stages.
+     * True only if the pipeline completed successfully: every stage SUCCEEDED, was
+     * RECOVERED by its fallback, or was deliberately SKIPPED, with no failed,
+     * blocked, timed-out or cancelled stages.
      *
      * <p>A run can end {@link PipelineStatus#COMPLETED} and still be unsuccessful:
      * BLOCKED stages and stages that failed under {@link FailurePolicy#CONTINUE}

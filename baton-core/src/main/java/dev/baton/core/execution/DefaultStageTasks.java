@@ -126,7 +126,9 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             if (first == null) {
                 first = failure;
             } else if (first != failure) {
-                first.addSuppressed(failure);
+                // Not attached as suppressed: children may throw shared or cached
+                // exception instances, which must not be mutated.
+                LOG.log(System.Logger.Level.WARNING, "Another unjoined child task also failed", failure);
             }
         }
         if (first != null && unjoinedFailure == UnjoinedChildFailurePolicy.IGNORE) {

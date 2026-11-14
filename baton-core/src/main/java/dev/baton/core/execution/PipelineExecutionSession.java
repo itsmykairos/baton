@@ -182,16 +182,20 @@ public final class PipelineExecutionSession implements PipelineRun {
 
     @Override
     public boolean cancel() {
+        ExecutionControl.Cancellation cancellation;
         synchronized (completionLock) {
             if (completion.isDone()) {
                 return false;
             }
-            boolean accepted = control.cancel();
-            if (accepted) {
-                executor.shutdownNow();
-            }
-            return accepted;
+            // Only mark it here: completing the run needs this lock, and the cascade
+            // below may wait for tasks that other threads are completing.
+            cancellation = control.beginCancel();
         }
+        cancellation.cancelTasks();
+        if (cancellation.first()) {
+            executor.shutdownNow();
+        }
+        return cancellation.first();
     }
 
     @Override

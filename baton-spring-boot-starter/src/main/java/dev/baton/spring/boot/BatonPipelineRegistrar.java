@@ -97,6 +97,10 @@ public final class BatonPipelineRegistrar implements BeanDefinitionRegistryPostP
                 String path = where + ".layers[" + i + "]";
                 if (layer.parallel() != null) {
                     requireOne(layer, path, true);
+                    if (layer.id() != null || StageSpecs.hasOptions(layer)) {
+                        throw new IllegalStateException(path + ": options and id cannot be set on a parallel "
+                                + "layer; set them on each entry under stages");
+                    }
                     if (layer.stages() == null || layer.stages().isEmpty()) {
                         throw new IllegalStateException(path + ".stages must list the parallel layer's stages");
                     }

@@ -151,7 +151,8 @@ public final class MermaidDiagram {
         if (result != null) {
             title += " - " + result.status() + (result.isSuccessful() ? "" : " (not successful)");
         }
-        out.append("---\ntitle: \"").append(title.replace("\"", "'")).append("\"\n---\n");
+        out.append("---\ntitle: \"").append(flatten(title).replace("\"", "'").replace("\\", "/"))
+                .append("\"\n---\n");
         out.append("flowchart ").append(leftToRight ? "LR" : "TB").append('\n');
         out.append("  start([\"start\"])\n");
         out.append("  finish([\"end\"])\n");
@@ -362,9 +363,14 @@ public final class MermaidDiagram {
         return (seconds == Math.rint(seconds) ? String.valueOf((long) seconds) : String.valueOf(seconds)) + " s";
     }
 
+    /** Line breaks would end a label or the title line, so they become spaces. */
+    private static String flatten(String text) {
+        return text.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ');
+    }
+
     /** Escapes text for a quoted Mermaid label. */
     private static String escape(String text) {
-        return text.replace("&", "#amp;")
+        return flatten(text).replace("&", "#amp;")
                 .replace("\"", "#quot;")
                 .replace("<", "#lt;")
                 .replace(">", "#gt;");

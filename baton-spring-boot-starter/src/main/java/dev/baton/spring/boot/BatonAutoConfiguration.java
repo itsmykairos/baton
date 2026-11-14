@@ -157,6 +157,13 @@ public class BatonAutoConfiguration {
             config.defaultPipelineName(properties.defaultPipelineName());
         }
         if (properties.defaultStage() != null) {
+            var defaults = properties.defaultStage();
+            if (defaults.stage() != null || defaults.pipeline() != null || defaults.parallel() != null
+                    || defaults.stages() != null || defaults.id() != null) {
+                throw new IllegalStateException("baton.default-stage takes stage options only "
+                        + "(timeout, failure-policy, retry, fallback, condition, skip-if-inputs-missing, "
+                        + "overwrite-policy), not stage, pipeline, parallel, stages or id");
+            }
             config.defaultStageOptions(StageSpecs.apply(dev.baton.api.StageOptions.defaults(),
                     properties.defaultStage(), beans, "baton.default-stage"));
         }

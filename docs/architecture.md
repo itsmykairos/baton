@@ -133,8 +133,14 @@ the library modules.
 - The stage deadline bounds all attempts and backoff waits.
   - Backoff is a `Thread.sleep` on the worker, so cancellation and expiry interrupt it.
   - A retry whose backoff would outlast the deadline is not attempted.
-- Fallbacks run on the layer's coordinating thread, after the stage's outcome is known
-  and before FAIL_FAST is evaluated. So a RECOVERED stage never stops the run.
+- Fallbacks run as their own tracked tasks once the stage's outcome is known, bounded
+  by the enclosing (run or nested stage) deadline. The layer keeps observing other
+  stages meanwhile. FAIL_FAST is evaluated on the outcome after the fallback, so a
+  RECOVERED stage never stops the run.
+  - FAIL_FAST and cancellation cancel a pending fallback, and the stage keeps its own
+    outcome.
+  - Conditions also run as tracked tasks bounded by the enclosing deadline. A
+    condition or fallback that outlives it fails with `StageTimeoutException`.
   - RECOVERED patches take part in conflict detection like SUCCEEDED ones.
   - Fallbacks are skipped when the run is cancelled or the enclosing deadline expired.
 - The run timeout is the outermost engine's inherited deadline, and every stage deadline

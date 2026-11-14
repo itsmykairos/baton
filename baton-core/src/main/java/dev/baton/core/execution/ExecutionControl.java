@@ -18,17 +18,30 @@ final class ExecutionControl {
      * cancelling.
      */
     boolean cancel() {
-        boolean first;
-        Set<TrackedTask<?>> snapshot;
+        Cancellation cancellation = beginCancel();
+        cancellation.cancelTasks();
+        return cancellation.first();
+    }
+
+    /**
+     * Marks the run cancelled and snapshots its tasks, without cancelling them yet.
+     * Lets a caller mark cancellation under its own lock and run the (possibly long)
+     * cascade with {@link Cancellation#cancelTasks()} after releasing it.
+     */
+    Cancellation beginCancel() {
         synchronized (lock) {
-            first = !cancelled;
+            boolean first = !cancelled;
             cancelled = true;
-            snapshot = Set.copyOf(activeTasks);
+            return new Cancellation(first, Set.copyOf(activeTasks));
         }
-        // Never invoke task cancellation (which may close child scopes) under
-        // the registration lock.
-        snapshot.forEach(TrackedTask::cancel);
-        return first;
+    }
+
+    /** A cancellation that has been marked but whose tasks may not be cancelled yet. */
+    record Cancellation(boolean first, Set<TrackedTask<?>> tasks) {
+        /** Cancels the snapshot's tasks; never call it under a lock. */
+        void cancelTasks() {
+            tasks.forEach(TrackedTask::cancel);
+        }
     }
 
     void track(TrackedTask<?> task) {

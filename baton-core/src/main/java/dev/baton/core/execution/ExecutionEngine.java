@@ -47,6 +47,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -98,6 +99,8 @@ final class ExecutionEngine {
 
     /** Per-stage attempt state, so results can report attempts and nested children. */
     private final Map<TrackedTask<?>, StageRun> stageRuns = new ConcurrentHashMap<>();
+    /** Each stage's full path, computed once. */
+    private final Map<String, StagePath> paths = new ConcurrentHashMap<>();
 
     /** The outermost engine of a run limited by {@code runDeadline}, with the run's settings. */
     ExecutionEngine(
@@ -300,20 +303,38 @@ final class ExecutionEngine {
             }
         }
         int pending = startStages(waiting, 0, stages, context, tasks, layerResults, startedAt, finished);
+        // Fallbacks run as their own tasks, signalled on the same queue as index + size,
+        // so a slow fallback never stops the layer from observing other stages.
+        @SuppressWarnings("unchecked")
+        TrackedTask<ContextPatch>[] fallbacks = new TrackedTask[size];
+        StageResult[] beforeFallback = new StageResult[size];
 
         // Observe stages in completion order so a FAIL_FAST failure can cancel
         // siblings immediately. Results are stored at their definition index.
         // A timeout/cancel completes logically even when the worker is still running.
         try {
             while (pending > 0) {
-                int i = finished.take();
+                int signal = finished.take();
                 pending--;
-                StageResult result = withFallback(stages.get(i), context,
-                        awaitStage(stages.get(i), tasks[i]));
+                int i = signal >= size ? signal - size : signal;
+                StageResult result;
+                if (signal >= size) {
+                    result = fallbackOutcome(stages.get(i), beforeFallback[i], fallbacks[i]);
+                } else {
+                    result = awaitStage(stages.get(i), tasks[i]);
+                    if (needsFallback(stages.get(i), result)) {
+                        int index = i;
+                        beforeFallback[i] = result;
+                        fallbacks[i] = startFallback(stages.get(i), context, result);
+                        fallbacks[i].onDone(() -> finished.add(index + size));
+                        pending++;
+                        continue;
+                    }
+                }
                 record(layerResults, i, result);
                 if (trigger == null && stopsPipeline(stages.get(i), result)) {
                     trigger = result;
-                    cancelUnfinished(tasks, layerResults);
+                    cancelUnfinished(tasks, fallbacks, layerResults);
                 }
                 if (trigger == null) {
                     pending += startStages(waiting, pending, stages, context, tasks, layerResults,
@@ -326,7 +347,14 @@ final class ExecutionEngine {
             // so real outcomes (such as TIMED_OUT) are not replaced by CANCELLED.
             control.cancel();
             for (int i = 0; i < size; i++) {
-                if (layerResults[i] == null && tasks[i] != null) {
+                if (layerResults[i] != null) {
+                    continue;
+                }
+                if (fallbacks[i] != null) {
+                    // The fallback was cancelled with the run: keep the stage's own outcome.
+                    control.untrack(fallbacks[i]);
+                    record(layerResults, i, beforeFallback[i]);
+                } else if (tasks[i] != null) {
                     record(layerResults, i, awaitCancelledStage(stages.get(i), tasks[i]));
                 }
             }
@@ -391,11 +419,16 @@ final class ExecutionEngine {
         }
     }
 
-    private void cancelUnfinished(TrackedTask<?>[] tasks, StageResult[] layerResults) {
+    private void cancelUnfinished(TrackedTask<?>[] tasks, TrackedTask<?>[] fallbacks, StageResult[] layerResults) {
         List<TrackedTask<?>> unfinished = new ArrayList<>();
         synchronized (state) {
             for (int i = 0; i < tasks.length; i++) {
-                if (tasks[i] != null && layerResults[i] == null) {
+                if (layerResults[i] != null) {
+                    continue;
+                }
+                if (fallbacks[i] != null) {
+                    unfinished.add(fallbacks[i]);
+                } else if (tasks[i] != null) {
                     unfinished.add(tasks[i]);
                 }
             }
@@ -717,30 +750,127 @@ final class ExecutionEngine {
     }
 
     /**
-     * Replaces a FAILED or TIMED_OUT result with a RECOVERED one when the stage has
-     * a fallback. Not used when the run is cancelled or the enclosing deadline has
-     * expired: the run is ending anyway.
+     * True when a FAILED or TIMED_OUT result should be handed to the stage's fallback.
+     * Not when the run is cancelled or the enclosing deadline has expired: the run is
+     * ending anyway.
      */
-    private StageResult withFallback(StageNode node, ContextView context, StageResult result) {
+    private boolean needsFallback(StageNode node, StageResult result) {
         boolean failed = result.status() == StageStatus.FAILED || result.status() == StageStatus.TIMED_OUT;
-        StageFallback fallback = node.options().fallback().orElse(null);
-        if (!failed || fallback == null || control.isCancelled() || inherited.isExpired()) {
+        return failed && node.options().fallback().isPresent() && !control.isCancelled() && !inherited.isExpired();
+    }
+
+    /**
+     * Starts the stage's fallback as its own task, bounded by the enclosing (run or
+     * nested stage) deadline and tracked, so cancellation and FAIL_FAST reach it.
+     */
+    private TrackedTask<ContextPatch> startFallback(StageNode node, ContextView context, StageResult result) {
+        StageFallback fallback = node.options().fallback().orElseThrow();
+        Throwable failure = result.failure().orElse(null);
+        TrackedTask<ContextPatch> task = TrackedTask.submit(
+                executor,
+                inherited,
+                deadlines,
+                propagation.wrap(() -> Objects.requireNonNull(fallback.recover(context, failure),
+                                "Fallback returned a null ContextPatch: " + node.id()),
+                        propagation.scope(ExecutionScope.Kind.FALLBACK, pathOf(node.id()))));
+        control.track(task);
+        return task;
+    }
+
+    /**
+     * Maps a finished fallback: RECOVERED with its patch, or FAILED with its failure
+     * (the stage's own failure attached as suppressed). A fallback cancelled with the
+     * run or by FAIL_FAST leaves the stage's own outcome.
+     */
+    private StageResult fallbackOutcome(StageNode node, StageResult original, TrackedTask<ContextPatch> task) {
+        Throwable failure = original.failure().orElse(null);
+        try {
+            ContextPatch patch = task.join();
+            return new DefaultStageResult(original.stageId(), StageStatus.RECOVERED, original.duration(),
+                    failure, patch, original.workerTermination(), original.children(), original.attempts());
+        } catch (CancellationException cancelled) {
+            return original;
+        } catch (TrackedTask.TaskExecutionException wrapped) {
+            return wrapped.getCause() instanceof InterruptedException ? original
+                    : fallbackFailed(original, wrapped.getCause());
+        } catch (TrackedTask.DeadlineExceededException expired) {
+            return fallbackFailed(original, new StageTimeoutException("Fallback of stage '" + pathOf(node.id())
+                    + "' was stopped because the deadline of its " + enclosing() + " expired"));
+        } catch (Throwable fallbackFailure) {
+            return fallbackFailed(original, fallbackFailure);
+        } finally {
+            control.untrack(task);
+        }
+    }
+
+    private static StageResult fallbackFailed(StageResult original, Throwable fallbackFailure) {
+        Throwable failure = original.failure().orElse(null);
+        if (failure != null && failure != fallbackFailure
+                && !java.util.Arrays.asList(fallbackFailure.getSuppressed()).contains(failure)) {
+            fallbackFailure.addSuppressed(failure);
+        }
+        return new DefaultStageResult(original.stageId(), StageStatus.FAILED, original.duration(),
+                fallbackFailure, null, original.workerTermination(), original.children(), original.attempts());
+    }
+
+    /** Runs the fallback and waits for it; used where the layer has nothing else to do. */
+    private StageResult withFallbackNow(StageNode node, ContextView context, StageResult result) {
+        if (!needsFallback(node, result)) {
             return result;
         }
-        Throwable failure = result.failure().orElse(null);
-        try (Restoration ignored = propagation.capture()
-                .restore(propagation.scope(ExecutionScope.Kind.FALLBACK, pathOf(node.id())))) {
-            ContextPatch patch = Objects.requireNonNull(fallback.recover(context, failure),
-                    "Fallback returned a null ContextPatch: " + node.id());
-            return new DefaultStageResult(result.stageId(), StageStatus.RECOVERED, result.duration(),
-                    failure, patch, result.workerTermination(), result.children(), result.attempts());
-        } catch (Throwable fallbackFailure) {
-            if (failure != null && failure != fallbackFailure) {
-                fallbackFailure.addSuppressed(failure);
-            }
-            return new DefaultStageResult(result.stageId(), StageStatus.FAILED, result.duration(),
-                    fallbackFailure, null, result.workerTermination(), result.children(), result.attempts());
+        TrackedTask<ContextPatch> task = startFallback(node, context, result);
+        try {
+            awaitDone(task);
+        } catch (InterruptedException interrupted) {
+            task.cancel();
+            control.untrack(task);
+            control.cancel();
+            Thread.currentThread().interrupt();
+            return result;
         }
+        return fallbackOutcome(node, result, task);
+    }
+
+    /**
+     * Runs short user code on its own thread, bounded by the enclosing deadline and
+     * reachable by cancellation, and returns its value.
+     *
+     * @throws StageTimeoutException if the enclosing deadline expires first
+     * @throws CancellationException if the run is cancelled meanwhile
+     */
+    private <T> T runBounded(java.util.concurrent.Callable<T> work, ExecutionScope scope, String what)
+            throws Exception {
+        TrackedTask<T> task = TrackedTask.submit(executor, inherited, deadlines, propagation.wrap(work, scope));
+        control.track(task);
+        try {
+            awaitDone(task);
+            return task.join();
+        } catch (TrackedTask.DeadlineExceededException expired) {
+            throw new StageTimeoutException(what + " was stopped because the deadline of its "
+                    + enclosing() + " expired");
+        } catch (TrackedTask.TaskExecutionException wrapped) {
+            if (wrapped.getCause() instanceof InterruptedException) {
+                throw new CancellationException("Pipeline execution was cancelled");
+            }
+            throw wrapped.getCause() instanceof Exception exception ? exception : wrapped;
+        } catch (InterruptedException interrupted) {
+            task.cancel();
+            control.cancel();
+            Thread.currentThread().interrupt();
+            throw new CancellationException("Pipeline execution was cancelled");
+        } finally {
+            control.untrack(task);
+        }
+    }
+
+    private static void awaitDone(TrackedTask<?> task) throws InterruptedException {
+        CountDownLatch done = new CountDownLatch(1);
+        task.onDone(done::countDown);
+        done.await();
+    }
+
+    private String enclosing() {
+        return parentPath == null ? "run" : "nested pipeline stage '" + parentPath + "'";
     }
 
     private StageTimeoutException stageTimedOut(StageNode node) {
@@ -750,7 +880,7 @@ final class ExecutionEngine {
             return new StageTimeoutException(stage + " exceeded its timeout of " + format(own));
         }
         return new StageTimeoutException(stage + " was stopped because the deadline of its "
-                + (parentPath == null ? "run" : "nested pipeline stage '" + parentPath + "'") + " expired");
+                + enclosing() + " expired");
     }
 
     private static String format(Duration duration) {
@@ -776,13 +906,17 @@ final class ExecutionEngine {
         if (condition == null) {
             return null;
         }
-        try (Restoration ignored = propagation.capture()
-                .restore(propagation.scope(ExecutionScope.Kind.CONDITION, pathOf(node.id())))) {
-            return condition.test(context) ? null : skipped(node);
+        StagePath path = pathOf(node.id());
+        try {
+            boolean run = runBounded(() -> condition.test(context),
+                    propagation.scope(ExecutionScope.Kind.CONDITION, path), "Condition of stage '" + path + "'");
+            return run ? null : skipped(node);
+        } catch (CancellationException cancelled) {
+            throw cancelled;
         } catch (Throwable failure) {
             StageResult failed = new DefaultStageResult(node.id(), StageStatus.FAILED, Duration.ZERO,
                     failure, null, WorkerTermination.NOT_STARTED, List.of(), 0);
-            return withFallback(node, context, failed);
+            return withFallbackNow(node, context, failed);
         }
     }
 
@@ -1049,7 +1183,8 @@ final class ExecutionEngine {
     }
 
     private StagePath pathOf(String stageId) {
-        return parentPath == null ? StagePath.of(stageId) : parentPath.child(stageId);
+        return paths.computeIfAbsent(stageId,
+                id -> parentPath == null ? StagePath.of(id) : parentPath.child(id));
     }
 
     /** SUCCEEDED and RECOVERED stages have their patch applied. */

@@ -40,6 +40,8 @@ public final class AsyncEventDispatcher implements EventSink {
     private final Queue<PipelineEvent> queue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger size = new AtomicInteger();
     private final AtomicLong dropped = new AtomicLong();
+    /** Emits in progress; finishing waits for them so none lands behind RunFinished. */
+    private final AtomicInteger inFlight = new AtomicInteger();
     private final Thread deliveryThread;
     private volatile LongFunction<RunFinished> lastEvent;
 
@@ -67,6 +69,15 @@ public final class AsyncEventDispatcher implements EventSink {
     @Override
     public void emit(PipelineEvent event) {
         Objects.requireNonNull(event, "event");
+        inFlight.incrementAndGet();
+        try {
+            offer(event);
+        } finally {
+            inFlight.decrementAndGet();
+        }
+    }
+
+    private void offer(PipelineEvent event) {
         if (lastEvent != null) {
             dropped.incrementAndGet();
             return;
@@ -106,8 +117,12 @@ public final class AsyncEventDispatcher implements EventSink {
             }
             LongFunction<RunFinished> finalEvent = lastEvent;
             if (finalEvent != null) {
-                // Events emitted before finish() but appended after this thread saw
-                // lastEvent are still in the queue: deliver them first.
+                // An emit that started before finish() may still be adding its event;
+                // once none is in flight, every later emit sees lastEvent and is
+                // counted as dropped, so the queue holds everything to deliver.
+                while (inFlight.get() > 0) {
+                    Thread.onSpinWait();
+                }
                 for (PipelineEvent event; (event = queue.poll()) != null; ) {
                     deliver(event);
                 }

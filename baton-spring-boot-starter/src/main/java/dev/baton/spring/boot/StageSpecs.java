@@ -58,8 +58,17 @@ final class StageSpecs {
         return options;
     }
 
-    @SuppressWarnings("unchecked")
     private static RetryPolicy retry(RetrySpec spec, BeanFactory beans, String where) {
+        try {
+            return buildRetry(spec, beans, where);
+        } catch (IllegalArgumentException invalid) {
+            // RetryPolicy's own message does not say which property is wrong.
+            throw new IllegalStateException(where + ": " + invalid.getMessage(), invalid);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static RetryPolicy buildRetry(RetrySpec spec, BeanFactory beans, String where) {
         if (spec.maxAttempts() == null) {
             throw new IllegalStateException(where + ".max-attempts is required");
         }

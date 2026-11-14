@@ -264,6 +264,22 @@ class BatonAutoConfigurationTest {
                         "baton.pipelines.b.layers[0].pipeline=a")
                 .run(context -> assertThat(startupFailure(context)).contains("cycle: a -> b -> a"));
         runner.withUserConfiguration(Stages.class)
+                .withPropertyValues("baton.pipelines.p.layers[0].parallel=x",
+                        "baton.pipelines.p.layers[0].stages[0].stage=customer",
+                        "baton.pipelines.p.layers[0].timeout=2s")
+                .run(context -> assertThat(startupFailure(context))
+                        .contains("baton.pipelines.p.layers[0]: options and id cannot be set on a parallel layer"));
+        runner.withUserConfiguration(Stages.class)
+                .withPropertyValues("baton.pipelines.p.layers[0].stage=customer",
+                        "baton.pipelines.p.layers[0].retry.max-attempts=3",
+                        "baton.pipelines.p.layers[0].retry.backoff=2s",
+                        "baton.pipelines.p.layers[0].retry.max-delay=1s")
+                .run(context -> assertThat(startupFailure(context))
+                        .contains("baton.pipelines.p.layers[0].retry: Require initialDelay"));
+        runner.withPropertyValues("baton.default-stage.stage=customer")
+                .run(context -> assertThat(startupFailure(context))
+                        .contains("baton.default-stage takes stage options only"));
+        runner.withUserConfiguration(Stages.class)
                 .withPropertyValues("baton.pipelines.p.layers[0].parallel=x")
                 .run(context -> assertThat(startupFailure(context))
                         .contains("baton.pipelines.p.layers[0].stages must list"));

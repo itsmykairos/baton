@@ -6,11 +6,13 @@ package dev.baton.api;
  * the run continues, and the original failure stays in {@link StageResult#failure()}.
  *
  * <p>The fallback is not called for cancelled or BLOCKED stages, or when the
- * enclosing run or nested-stage deadline has already expired. It runs on the
- * thread that coordinates the stage's layer and is not subject to the stage
- * timeout, so it should be quick: a default, a cached value, a degraded result.
- * If it throws, the stage is FAILED with that exception and the original failure
- * attached as suppressed.</p>
+ * enclosing run or nested-stage deadline has already expired. It runs on its own
+ * thread, bounded by that enclosing deadline (not by the stage's own timeout, which
+ * has usually just expired); other stages keep running meanwhile, and FAIL_FAST or
+ * cancellation stop it, leaving the stage's own outcome. It should still be quick:
+ * a default, a cached value, a degraded result. If it throws, or outlives the
+ * enclosing deadline ({@link StageTimeoutException}), the stage is FAILED with that
+ * exception and the original failure attached as suppressed.</p>
  */
 @FunctionalInterface
 public interface StageFallback {

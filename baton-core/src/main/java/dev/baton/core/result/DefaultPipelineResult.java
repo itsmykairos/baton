@@ -42,19 +42,24 @@ public record DefaultPipelineResult(
     }
 
     /** Checks nested children too: a successful nested stage may contain failed stages. */
+    /**
+     * A RECOVERED stage's fallback replaced its outcome, so failures inside it (a
+     * nested pipeline that failed) do not count.
+     */
     private static boolean allSucceeded(List<StageResult> stages) {
-        return stages.stream().allMatch(stage ->
-                (stage.status() == StageStatus.SUCCEEDED
-                        || stage.status() == StageStatus.RECOVERED
-                        || stage.status() == StageStatus.SKIPPED)
-                        && allSucceeded(stage.children()));
+        return stages.stream().allMatch(stage -> switch (stage.status()) {
+            case RECOVERED -> true;
+            case SUCCEEDED, SKIPPED -> allSucceeded(stage.children());
+            default -> false;
+        });
     }
 
     private static boolean anyFailed(List<StageResult> stages) {
-        return stages.stream().anyMatch(stage ->
-                stage.status() == StageStatus.FAILED
-                        || stage.status() == StageStatus.TIMED_OUT
-                        || anyFailed(stage.children()));
+        return stages.stream().anyMatch(stage -> switch (stage.status()) {
+            case RECOVERED -> false;
+            case FAILED, TIMED_OUT -> true;
+            default -> anyFailed(stage.children());
+        });
     }
 
     @Override

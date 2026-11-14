@@ -114,6 +114,9 @@ pipeline.run(input, RunOptions.defaults().withTimeout(Duration.ofSeconds(2)));  
     fallback's patch is applied and the run continues.
   - A RECOVERED stage counts as success, and the original failure stays in `failure()`.
   - The fallback isn't used once the run is cancelled or its deadline has passed.
+  - Fallbacks and conditions run on their own threads, bounded by the run's (or
+    nested stage's) deadline. A hanging one can't hold a run past its timeout, and
+    FAIL_FAST and cancellation stop them.
 - **Run timeout.**
   - When the run timeout expires, active stages time out, no further layer starts, and
     the run ends `TIMED_OUT`.

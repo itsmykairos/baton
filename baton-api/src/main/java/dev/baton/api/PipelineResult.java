@@ -33,7 +33,8 @@ public interface PipelineResult {
      * BLOCKED stages and stages that failed under {@link FailurePolicy#CONTINUE}
      * do not stop the run.</p>
      *
-     * <p>Nested stages are checked recursively through {@link StageResult#children()}.</p>
+     * <p>Nested stages are checked recursively through {@link StageResult#children()},
+     * except inside a RECOVERED stage: its fallback replaced the nested outcome.</p>
      *
      * @return whether the run fully succeeded
      */
@@ -41,7 +42,8 @@ public interface PipelineResult {
 
     /**
      * True if at least one stage failed or timed out, including stages of
-     * nested pipelines reported through {@link StageResult#children()}.
+     * nested pipelines reported through {@link StageResult#children()} (but not
+     * inside a RECOVERED stage, whose fallback replaced the nested outcome).
      *
      * @return whether any stage failed or timed out
      */

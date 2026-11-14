@@ -144,8 +144,10 @@ public final class BatonConfig {
         merged.notifyNestedListeners = pick(overrides.notifyNestedListeners, notifyNestedListeners);
         merged.clock = pick(overrides.clock, clock);
         merged.defaultPipelineName = pick(overrides.defaultPipelineName, defaultPipelineName);
-        // Propagators accumulate across layers rather than replace each other.
-        merged.contextPropagators.addAll(overrides.contextPropagators);
+        // Propagators accumulate across layers rather than replace each other. The same
+        // instance is kept once, so overlaying a config derived from this one with
+        // toBuilder() does not register its propagators twice.
+        overrides.contextPropagators.forEach(merged::addPropagatorOnce);
         return new BatonConfig(merged);
     }
 
@@ -279,7 +281,8 @@ public final class BatonConfig {
     /**
      * {@return the context propagators (run-scoped), in registration order; default
      * none. Unlike other settings they accumulate across layers: app, pipeline and
-     * run propagators all apply}
+     * run propagators all apply. Each instance appears once, however many layers
+     * register it}
      */
     public List<ContextPropagator<?>> contextPropagators() {
         return contextPropagators;
@@ -564,15 +567,25 @@ public final class BatonConfig {
 
         /**
          * Adds a context propagator. Propagators restore in registration order and
-         * undo in reverse order.
+         * undo in reverse order. Adding an instance that is already registered has
+         * no effect.
          *
          * @param propagator the propagator
          * @return this builder
          * @see ContextPropagator
          */
         public Builder contextPropagator(ContextPropagator<?> propagator) {
-            contextPropagators.add(Objects.requireNonNull(propagator, "propagator"));
+            addPropagatorOnce(Objects.requireNonNull(propagator, "propagator"));
             return this;
+        }
+
+        private void addPropagatorOnce(ContextPropagator<?> propagator) {
+            for (ContextPropagator<?> existing : contextPropagators) {
+                if (existing == propagator) {
+                    return;
+                }
+            }
+            contextPropagators.add(propagator);
         }
 
         /** {@return the immutable config} */

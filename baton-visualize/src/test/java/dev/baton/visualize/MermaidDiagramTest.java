@@ -176,6 +176,19 @@ class MermaidDiagramTest {
         assertThat(diagram).contains("<b>a#lt;b#gt;#amp;#quot;c#quot;</b>");
     }
 
+    @Test
+    void lineBreaksInIdsAndNamesDoNotBreakTheDiagram() throws IOException {
+        Pipeline pipeline = Pipeline.builder()
+                .name("multi\nline")
+                .stage("load\norder", context -> ContextPatch.empty())
+                .build();
+        String diagram = MermaidDiagram.of(pipeline.describe());
+        write("newlines.mmd", diagram);
+
+        assertThat(diagram).contains("title: \"multi line\"", "<b>load order</b>");
+        assertThat(diagram.lines()).noneMatch(line -> line.equals("order</b>\"]"));
+    }
+
     private static Stage needs(ContextKey<?> key) {
         return new Stage() {
             @Override

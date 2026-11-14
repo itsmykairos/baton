@@ -103,8 +103,10 @@ public final class StageOptions {
      * Runs the stage only when {@code condition} holds for the context it would read;
      * otherwise the stage is {@link StageStatus#SKIPPED}.
      *
-     * <p>The condition is evaluated once, just before the stage would start, on the
-     * thread that coordinates its layer, so it should be quick and side-effect free.
+     * <p>The condition is evaluated once, just before the stage would start, on its
+     * own thread bounded by the enclosing run or nested-stage deadline; cancellation
+     * stops it, and outliving the deadline fails the stage with
+     * {@link StageTimeoutException}. It should be quick and side-effect free.
      * It is checked after {@link Stage#requiredReads()}. If it throws, the stage is
      * FAILED with that exception (no retries; the fallback and failure policy apply
      * as usual).</p>

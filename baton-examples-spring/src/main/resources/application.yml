@@ -1,0 +1,28 @@
+spring:
+  main:
+    banner-mode: off
+logging:
+  level:
+    root: warn
+    dev.baton.examples: info
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%-15X{baton.stage:-main}] %X{requestId} %msg%n"
+
+baton:
+  context:
+    flatten-depth: 16
+  execution:
+    max-parallel-stages: 8
+  pipelines:
+    checkout:
+      timeout: 5s
+      layers:
+        - stage: loadOrder
+          id: load-order
+        - parallel: enrich
+          stages:
+            - stage: customer
+            - stage: recommendations
+              timeout: 100ms
+              fallback: noRecommendations
+        - pipeline: payment

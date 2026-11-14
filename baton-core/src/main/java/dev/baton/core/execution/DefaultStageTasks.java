@@ -2,6 +2,7 @@ package dev.baton.core.execution;
 
 import dev.baton.api.BatonConfig;
 import dev.baton.api.StageTasks;
+import dev.baton.api.StageTimeoutException;
 import dev.baton.api.UnjoinedChildFailurePolicy;
 import dev.baton.api.TaskHandle;
 import dev.baton.core.deadline.Deadline;
@@ -165,6 +166,8 @@ final class DefaultStageTasks implements StageTasks, AutoCloseable {
             observed = true;
             try {
                 return task.join();
+            } catch (TrackedTask.DeadlineExceededException expired) {
+                throw new StageTimeoutException("Child task was stopped because its stage's deadline expired");
             } catch (TrackedTask.TaskExecutionException e) {
                 if (e.getCause() instanceof InterruptedException interrupted) {
                     throw interrupted;

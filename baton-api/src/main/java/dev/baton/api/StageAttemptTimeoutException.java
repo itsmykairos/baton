@@ -1,12 +1,11 @@
 package dev.baton.api;
 
-import java.util.concurrent.TimeoutException;
-
 /**
  * One attempt of a stage exceeded {@link RetryPolicy#withAttemptTimeout}. Retryable
- * by default; if it is the stage's final outcome, the stage is TIMED_OUT.
+ * by default; if it is the stage's final outcome, the stage is TIMED_OUT. A kind of
+ * {@link StageTimeoutException}.
  */
-public final class StageAttemptTimeoutException extends TimeoutException {
+public final class StageAttemptTimeoutException extends StageTimeoutException {
 
     private static final long serialVersionUID = 1L;
 

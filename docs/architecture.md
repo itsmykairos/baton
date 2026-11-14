@@ -71,6 +71,21 @@ the library modules.
 - BLOCKED stages (missing `requiredReads`) never stop a run; `requiredReads` is checked at
   run time, not at build time.
 
+## Spring Boot starter
+
+- `BatonAutoConfiguration` builds one `BatonConfig` bean from `baton.*` properties,
+  `ContextPropagator` beans and `BatonConfigCustomizer`s.
+- It exposes a prototype `Pipeline.Builder` with every `PipelineListener` bean attached.
+- Metrics and tracing integrations resolve their `MeterRegistry` or `OpenTelemetry`
+  through `ObjectProvider` on first use, so they don't depend on auto-configuration
+  ordering.
+- `BatonPipelineRegistrar`, a bean-definition registry post-processor, binds
+  `baton.pipelines`, validates the layouts and checks for cycles, then registers one
+  `Pipeline` bean per entry. Each is built through the prototype builder when it is
+  created.
+- `BatonEndpoint` reports `describe()` for every `Pipeline` bean when Actuator is present
+  and the endpoint is exposed.
+
 ## Context propagation
 
 - `Propagation` (core) wraps every hop: run, stage, timed attempt, child task,

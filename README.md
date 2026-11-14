@@ -18,6 +18,8 @@ Status: `0.1.0-SNAPSHOT`, not yet published. Build it from source (see below).
 | `baton-opentelemetry` | Optional: one trace per run, one span per stage, for OpenTelemetry. | `implementation` |
 | `baton-visualize` | Optional: Mermaid diagrams of pipelines and runs. | `implementation` |
 | `baton-slf4j` | Optional: carries the SLF4J MDC into stage threads, with run and stage keys. | `implementation` |
+| `baton-spring-boot-starter` | Optional: Spring Boot 4.1 auto-configuration, pipelines in `application.yml`, `/actuator/baton`. | `implementation` |
+| `baton-examples-spring` | A runnable Spring Boot example (not published). | — |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `baton-examples` | A runnable checkout pipeline (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
@@ -76,6 +78,9 @@ result.context().get(TOTAL);                                     // 42
 
 **Timeouts and cancellation**
 - A stage timeout covers the stage, its child tasks and any nested pipeline it runs.
+- A timed-out stage reports a `StageTimeoutException` that says which limit expired:
+  the stage's own timeout, or its run's or nested stage's deadline. A child task cut
+  off by its stage's deadline throws it from `join()`.
 - `PipelineRun.cancel()` cancels every active stage.
 - Neither waits for worker threads to exit. Interruption is cooperative, and
   `StageResult.workerTermination()` reports whether the worker's exit was confirmed.
@@ -165,6 +170,29 @@ static final BatonConfig APP = BatonConfig.builder()
 Every key conflict is listed in `PipelineResult.conflicts()` and sent as a
 `ContextConflict` event. [docs/configuration.md](docs/configuration.md) lists every
 setting, its scope and precedence, and how to choose a flatten depth.
+
+## Spring Boot
+
+Add `baton-spring-boot-starter` and Baton is configured from `application.yml`.
+- MDC, Micrometer and OpenTelemetry are wired automatically when present.
+- Pipelines can be `@Bean`s built with an injected, pre-configured `Pipeline.Builder`,
+  or declared entirely in YAML from `Stage` beans.
+- `/actuator/baton` shows every pipeline, with a Mermaid diagram.
+
+```yaml
+baton:
+  execution.max-parallel-stages: 32
+  pipelines:
+    checkout:
+      layers:
+        - stage: loadOrder
+        - parallel: enrich
+          stages: [{ stage: customer }, { stage: recommendations, timeout: 100ms, fallback: noRecommendations }]
+        - pipeline: payment
+```
+
+See [docs/spring-boot.md](docs/spring-boot.md), and run
+`./gradlew :baton-examples-spring:run`.
 
 ## Context propagation
 

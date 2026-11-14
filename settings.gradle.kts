@@ -22,7 +22,9 @@ include(
     "baton-opentelemetry",
     "baton-visualize",
     "baton-slf4j",
+    "baton-spring-boot-starter",
     "baton-integration-tests",
     "baton-benchmarks",
-    "baton-examples"
+    "baton-examples",
+    "baton-examples-spring"
 )

@@ -15,6 +15,7 @@ import dev.baton.api.PipelineStatus;
 import dev.baton.api.RetryPolicy;
 import dev.baton.api.Stage;
 import dev.baton.api.StageAttemptTimeoutException;
+import dev.baton.api.StageTimeoutException;
 import dev.baton.api.StageFallback;
 import dev.baton.api.StageResult;
 import dev.baton.api.StageStatus;
@@ -673,8 +674,12 @@ final class ExecutionEngine {
                     node.id(), StageStatus.SUCCEEDED, execution.duration(), null,
                     execution.patch(), task.workerTermination(), childrenOf(task), attemptsOf(task)
             );
-        } catch (TrackedTask.DeadlineExceededException | StageAttemptTimeoutException e) {
+        } catch (StageAttemptTimeoutException e) {
             return unsuccessful(node, task, StageStatus.TIMED_OUT, e);
+        } catch (TrackedTask.DeadlineExceededException e) {
+            // The internal exception never reaches users: report a public one that says
+            // which limit expired.
+            return unsuccessful(node, task, StageStatus.TIMED_OUT, stageTimedOut(node));
         } catch (CancellationException e) {
             return unsuccessful(node, task, StageStatus.CANCELLED, e);
         } catch (InterruptedException e) {
@@ -736,6 +741,21 @@ final class ExecutionEngine {
             return new DefaultStageResult(result.stageId(), StageStatus.FAILED, result.duration(),
                     fallbackFailure, null, result.workerTermination(), result.children(), result.attempts());
         }
+    }
+
+    private StageTimeoutException stageTimedOut(StageNode node) {
+        String stage = "Stage '" + pathOf(node.id()) + "'";
+        Duration own = node.options().timeout().orElse(null);
+        if (own != null && !inherited.isExpired()) {
+            return new StageTimeoutException(stage + " exceeded its timeout of " + format(own));
+        }
+        return new StageTimeoutException(stage + " was stopped because the deadline of its "
+                + (parentPath == null ? "run" : "nested pipeline stage '" + parentPath + "'") + " expired");
+    }
+
+    private static String format(Duration duration) {
+        long millis = duration.toMillis();
+        return millis < 1_000 ? millis + " ms" : (millis % 1_000 == 0 ? millis / 1_000 + " s" : millis / 1_000.0 + " s");
     }
 
     private static TimeoutException deadlineExpired() {

@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# One run per branch or pull request: a new push cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

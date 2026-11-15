@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per branch or pull request: a new push cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      # Fails fast on unformatted code; fix locally with ./gradlew spotlessApply.
+      - run: ./gradlew spotlessCheck
+      # Compiles, runs every test, checks Javadoc and the recorded public API (apiCheck).
+      - run: ./gradlew build
+      # The engine is concurrent: repeat the core tests to surface races.
+      - name: Repeat core tests
+        run: |
+          for i in 1 2 3 4 5; do
+            ./gradlew :baton-core:test --rerun-tasks -q
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: "**/build/test-results/test/*.xml"

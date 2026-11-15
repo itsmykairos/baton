@@ -1,0 +1,229 @@
+public class dev.baton.spring.boot.BatonAutoConfiguration {
+  public dev.baton.spring.boot.BatonAutoConfiguration();
+  public dev.baton.api.BatonConfig batonConfig(dev.baton.spring.boot.BatonProperties, org.springframework.beans.factory.ObjectProvider<dev.baton.api.propagation.ContextPropagator<?>>, org.springframework.beans.factory.ObjectProvider<dev.baton.spring.boot.BatonConfigCustomizer>, org.springframework.beans.factory.ListableBeanFactory);
+  public dev.baton.api.Pipeline$Builder batonPipelineBuilder(dev.baton.api.BatonConfig, org.springframework.beans.factory.ObjectProvider<dev.baton.api.event.PipelineListener>);
+  public dev.baton.slf4j.MdcContextPropagator batonMdcContextPropagator();
+  public static dev.baton.spring.boot.BatonPipelineRegistrar batonPipelineRegistrar();
+}
+
+public class dev.baton.spring.boot.BatonEndpoint {
+  public dev.baton.spring.boot.BatonEndpoint(org.springframework.beans.factory.ListableBeanFactory);
+  public dev.baton.spring.boot.BatonEndpoint$PipelinesReport pipelines();
+  public dev.baton.spring.boot.BatonEndpoint$PipelineReport pipeline(java.lang.String);
+}
+
+public class dev.baton.spring.boot.BatonEndpointAutoConfiguration {
+  public dev.baton.spring.boot.BatonEndpointAutoConfiguration();
+  public dev.baton.spring.boot.BatonEndpoint batonEndpoint(org.springframework.beans.factory.ListableBeanFactory);
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$LayerReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$LayerReport(java.lang.String, boolean, java.util.List<dev.baton.spring.boot.BatonEndpoint$StageReport>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String id();
+  public boolean parallel();
+  public java.util.List<dev.baton.spring.boot.BatonEndpoint$StageReport> stages();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$NestedReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$NestedReport(java.lang.String, java.util.List<dev.baton.spring.boot.BatonEndpoint$LayerReport>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String name();
+  public java.util.List<dev.baton.spring.boot.BatonEndpoint$LayerReport> layers();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$PipelineReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$PipelineReport(java.lang.String, java.lang.String, dev.baton.spring.boot.BatonEndpoint$SettingsReport, java.util.List<dev.baton.spring.boot.BatonEndpoint$LayerReport>, java.lang.String);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String bean();
+  public java.lang.String name();
+  public dev.baton.spring.boot.BatonEndpoint$SettingsReport settings();
+  public java.util.List<dev.baton.spring.boot.BatonEndpoint$LayerReport> layers();
+  public java.lang.String mermaid();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$PipelineSummary extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$PipelineSummary(java.lang.String, int, int, boolean);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String name();
+  public int layers();
+  public int stages();
+  public boolean describable();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$PipelinesReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$PipelinesReport(java.util.Map<java.lang.String, dev.baton.spring.boot.BatonEndpoint$PipelineSummary>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.util.Map<java.lang.String, dev.baton.spring.boot.BatonEndpoint$PipelineSummary> pipelines();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$SettingsReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$SettingsReport(int, java.lang.String, java.lang.String, java.lang.String, int, int, java.lang.String, java.util.List<java.lang.String>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public int contextFlattenDepth();
+  public java.lang.String layerConflictPolicy();
+  public java.lang.String overwritePolicy();
+  public java.lang.String typeClashPolicy();
+  public int maxParallelStages();
+  public int maxChildTasks();
+  public java.lang.String runTimeout();
+  public java.util.List<java.lang.String> contextPropagators();
+}
+
+public final class dev.baton.spring.boot.BatonEndpoint$StageReport extends java.lang.Record {
+  public dev.baton.spring.boot.BatonEndpoint$StageReport(java.lang.String, java.lang.String, java.lang.String, java.lang.String, int, boolean, boolean, boolean, java.lang.String, java.util.List<java.lang.String>, dev.baton.spring.boot.BatonEndpoint$NestedReport);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String id();
+  public java.lang.String type();
+  public java.lang.String timeout();
+  public java.lang.String failurePolicy();
+  public int maxAttempts();
+  public boolean fallback();
+  public boolean conditional();
+  public boolean optionalInputs();
+  public java.lang.String overwritePolicy();
+  public java.util.List<java.lang.String> needs();
+  public dev.baton.spring.boot.BatonEndpoint$NestedReport nested();
+}
+
+public final class dev.baton.spring.boot.BatonPipelineRegistrar implements org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor,org.springframework.context.EnvironmentAware {
+  public dev.baton.spring.boot.BatonPipelineRegistrar();
+  public void setEnvironment(org.springframework.core.env.Environment);
+  public void postProcessBeanDefinitionRegistry(org.springframework.beans.factory.support.BeanDefinitionRegistry) throws org.springframework.beans.BeansException;
+  public void postProcessBeanFactory(org.springframework.beans.factory.config.ConfigurableListableBeanFactory);
+}
+
+public final class dev.baton.spring.boot.BatonProperties extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties(dev.baton.spring.boot.BatonProperties$Context, dev.baton.spring.boot.BatonProperties$Conflicts, dev.baton.spring.boot.BatonProperties$Execution, dev.baton.spring.boot.BatonProperties$Events, java.lang.String, dev.baton.spring.boot.BatonProperties$StageSpec, dev.baton.spring.boot.BatonProperties$Integrations, java.util.Map<java.lang.String, dev.baton.spring.boot.BatonProperties$PipelineSpec>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public dev.baton.spring.boot.BatonProperties$Context context();
+  public dev.baton.spring.boot.BatonProperties$Conflicts conflicts();
+  public dev.baton.spring.boot.BatonProperties$Execution execution();
+  public dev.baton.spring.boot.BatonProperties$Events events();
+  public java.lang.String defaultPipelineName();
+  public dev.baton.spring.boot.BatonProperties$StageSpec defaultStage();
+  public dev.baton.spring.boot.BatonProperties$Integrations integrations();
+  public java.util.Map<java.lang.String, dev.baton.spring.boot.BatonProperties$PipelineSpec> pipelines();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$Conflicts extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$Conflicts(dev.baton.api.LayerConflictPolicy, dev.baton.api.OverwritePolicy, dev.baton.api.TypeClashPolicy, java.lang.Boolean);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public dev.baton.api.LayerConflictPolicy layer();
+  public dev.baton.api.OverwritePolicy overwrite();
+  public dev.baton.api.TypeClashPolicy typeClash();
+  public java.lang.Boolean equalValuesConflict();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$Context extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$Context(java.lang.Integer);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.Integer flattenDepth();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$Events extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$Events(java.lang.Integer, java.time.Duration, dev.baton.api.EventOverflowPolicy, java.lang.Boolean);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.Integer bufferCapacity();
+  public java.time.Duration batchInterval();
+  public dev.baton.api.EventOverflowPolicy overflowPolicy();
+  public java.lang.Boolean notifyNestedListeners();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$Execution extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$Execution(java.lang.Integer, java.lang.Integer, dev.baton.api.UnjoinedChildFailurePolicy, java.time.Duration);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.Integer maxParallelStages();
+  public java.lang.Integer maxChildTasks();
+  public dev.baton.api.UnjoinedChildFailurePolicy unjoinedChildFailure();
+  public java.time.Duration runTimeout();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$Integrations extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$Integrations(boolean, boolean, dev.baton.spring.boot.BatonProperties$TracingMode);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public boolean mdc();
+  public boolean metrics();
+  public dev.baton.spring.boot.BatonProperties$TracingMode tracing();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$PipelineSpec extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$PipelineSpec(java.lang.String, java.time.Duration, java.util.List<dev.baton.spring.boot.BatonProperties$StageSpec>);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String name();
+  public java.time.Duration timeout();
+  public java.util.List<dev.baton.spring.boot.BatonProperties$StageSpec> layers();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$RetrySpec extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$RetrySpec(java.lang.Integer, java.time.Duration, java.lang.Double, java.time.Duration, java.lang.Double, java.time.Duration, java.lang.String);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.Integer maxAttempts();
+  public java.time.Duration backoff();
+  public java.lang.Double multiplier();
+  public java.time.Duration maxDelay();
+  public java.lang.Double jitter();
+  public java.time.Duration attemptTimeout();
+  public java.lang.String retryOn();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$StageSpec extends java.lang.Record {
+  public dev.baton.spring.boot.BatonProperties$StageSpec(java.lang.String, java.lang.String, java.lang.String, java.util.List<dev.baton.spring.boot.BatonProperties$StageSpec>, java.lang.String, java.time.Duration, dev.baton.api.FailurePolicy, dev.baton.spring.boot.BatonProperties$RetrySpec, java.lang.String, java.lang.String, java.lang.Boolean, dev.baton.api.OverwritePolicy);
+  public final java.lang.String toString();
+  public final int hashCode();
+  public final boolean equals(java.lang.Object);
+  public java.lang.String stage();
+  public java.lang.String pipeline();
+  public java.lang.String parallel();
+  public java.util.List<dev.baton.spring.boot.BatonProperties$StageSpec> stages();
+  public java.lang.String id();
+  public java.time.Duration timeout();
+  public dev.baton.api.FailurePolicy failurePolicy();
+  public dev.baton.spring.boot.BatonProperties$RetrySpec retry();
+  public java.lang.String fallback();
+  public java.lang.String condition();
+  public java.lang.Boolean skipIfInputsMissing();
+  public dev.baton.api.OverwritePolicy overwritePolicy();
+}
+
+public final class dev.baton.spring.boot.BatonProperties$TracingMode extends java.lang.Enum<dev.baton.spring.boot.BatonProperties$TracingMode> {
+  public static final dev.baton.spring.boot.BatonProperties$TracingMode PROPAGATOR;
+  public static final dev.baton.spring.boot.BatonProperties$TracingMode LISTENER;
+  public static final dev.baton.spring.boot.BatonProperties$TracingMode NONE;
+  public static dev.baton.spring.boot.BatonProperties$TracingMode[] values();
+  public static dev.baton.spring.boot.BatonProperties$TracingMode valueOf(java.lang.String);
+}
+
+public interface dev.baton.spring.boot.BatonConfigCustomizer {
+  public abstract void customize(dev.baton.api.BatonConfig$Builder);
+}

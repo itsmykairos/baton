@@ -1,0 +1,65 @@
+name: Release
+
+# Run by hand from the Actions tab once the version in gradle.properties is final.
+# Uploads signed artifacts to the Maven Central Portal as a deployment; it is published
+# only after you press "Publish" for it on central.sonatype.com.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Stops before anything is built or uploaded: releases come only from main, never
+      # as a snapshot, and never unsigned (Central rejects unsigned artifacts).
+      - name: Check the release
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases run from main only, not $GITHUB_REF."
+            exit 1
+          fi
+          version=$(sed -n 's/^version=//p' gradle.properties)
+          case "$version" in
+            ""|*-SNAPSHOT)
+              echo "::error::gradle.properties has version '$version'; set a release version such as 0.1.0 or 0.1.0-RC1."
+              exit 1
+              ;;
+          esac
+          missing=""
+          for name in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD SIGNING_KEY SIGNING_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (see docs/releasing.md)."
+            exit 1
+          fi
+          echo "Releasing $version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew build
+      - run: ./gradlew publishToMavenCentral --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      - name: Next steps
+        run: |
+          echo "### Baton $VERSION uploaded" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check the deployment on https://central.sonatype.com/publishing/deployments and press Publish." >> "$GITHUB_STEP_SUMMARY"
+          echo "Then tag v$VERSION and create the GitHub Release (docs/releasing.md)." >> "$GITHUB_STEP_SUMMARY"

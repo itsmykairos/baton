@@ -1,0 +1,9 @@
+public final class dev.baton.visualize.MermaidDiagram {
+  public static java.lang.String of(dev.baton.api.description.PipelineDescription);
+  public static java.lang.String of(dev.baton.api.description.PipelineDescription, dev.baton.api.PipelineResult);
+  public static dev.baton.visualize.MermaidDiagram builder(dev.baton.api.description.PipelineDescription);
+  public dev.baton.visualize.MermaidDiagram result(dev.baton.api.PipelineResult);
+  public dev.baton.visualize.MermaidDiagram leftToRight();
+  public dev.baton.visualize.MermaidDiagram showOptions(boolean);
+  public java.lang.String render();
+}

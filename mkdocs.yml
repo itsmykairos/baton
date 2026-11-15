@@ -1,0 +1,94 @@
+# The docs site, published to GitHub Pages by .github/workflows/docs.yml.
+# Preview locally: pip install -r requirements-docs.txt, then mkdocs serve.
+site_name: Baton
+site_description: Pipelines of stages on Java 21 virtual threads.
+site_url: https://kairos-tools.github.io/baton/
+repo_url: https://github.com/kairos-tools/baton
+repo_name: kairos-tools/baton
+edit_uri: edit/main/docs/
+copyright: Apache License 2.0
+site_dir: build/site
+strict: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - content.code.copy
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # Code on the site comes from compiled, tested files: the cookbook's recipe tests
+  # (examples/cookbook) and the examples. A missing file or section fails the build.
+  - pymdownx.snippets:
+      base_path:
+        - examples/cookbook/src/test/java/dev/baton/cookbook
+        - .
+      check_paths: true
+      dedent_subsections: true
+
+validation:
+  links:
+    # The Javadoc under api/ is added after mkdocs builds the site.
+    unrecognized_links: ignore
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Cookbook:
+      - cookbook/index.md
+      - Fan out and aggregate: cookbook/fan-out.md
+      - Retries, timeouts and fallbacks: cookbook/resilience.md
+      - Conditional stages: cookbook/conditional-stages.md
+      - Nested pipelines: cookbook/nested-pipelines.md
+      - Async runs and cancellation: cookbook/async-runs.md
+      - Events, metrics and logging: cookbook/observability.md
+      - Testing stages: cookbook/testing.md
+  - Guides:
+      - Configuration: configuration.md
+      - Context propagation: propagation.md
+      - Spring Boot: spring-boot.md
+      - Visualization: visualization.md
+  - API reference: reference.md
+  - Internals:
+      - Architecture: architecture.md
+      - Performance: performance.md
+      - "ADR 0001: Java 21 and virtual threads": decisions/0001-java-21-and-virtual-threads.md
+      - "ADR 0002: Stage-owned task scopes": decisions/0002-stage-owned-task-scopes.md
+  - Project:
+      - Changelog: changelog.md
+      - Releasing: releasing.md

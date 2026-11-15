@@ -1,0 +1,10 @@
+public final class dev.baton.micrometer.MicrometerPipelineListener implements dev.baton.api.event.PipelineListener {
+  public static final java.lang.String STAGE_DURATION;
+  public static final java.lang.String STAGE_RETRIES;
+  public static final java.lang.String CONTEXT_CONFLICTS;
+  public static final java.lang.String RUN_DURATION;
+  public static final java.lang.String ACTIVE_RUNS;
+  public static final java.lang.String DROPPED_EVENTS;
+  public dev.baton.micrometer.MicrometerPipelineListener(io.micrometer.core.instrument.MeterRegistry);
+  public void onEvent(dev.baton.api.event.PipelineEvent);
+}

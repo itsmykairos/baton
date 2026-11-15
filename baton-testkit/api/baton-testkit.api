@@ -1,0 +1,30 @@
+public final class dev.baton.testkit.PipelineResults {
+  public static dev.baton.api.StageResult stage(dev.baton.api.PipelineResult, java.lang.String);
+  public static void requireSuccess(dev.baton.api.PipelineResult);
+  public static java.lang.String describe(dev.baton.api.PipelineResult);
+}
+
+public final class dev.baton.testkit.RecordingListener implements dev.baton.api.event.PipelineListener {
+  public dev.baton.testkit.RecordingListener();
+  public synchronized void onEvent(dev.baton.api.event.PipelineEvent);
+  public synchronized java.util.List<dev.baton.api.event.PipelineEvent> events();
+  public synchronized <T extends dev.baton.api.event.PipelineEvent> java.util.List<T> events(java.lang.Class<T>);
+  public dev.baton.api.event.StageFinished stageFinished(java.lang.String);
+  public synchronized dev.baton.api.event.RunFinished awaitRunsFinished(int, java.time.Duration) throws java.util.concurrent.TimeoutException, java.lang.InterruptedException;
+  public synchronized void clear();
+}
+
+public final class dev.baton.testkit.StageTester {
+  public static dev.baton.api.ContextPatch run(dev.baton.api.Stage, dev.baton.api.ContextView) throws java.lang.Exception;
+  public static dev.baton.api.ContextView runAndApply(dev.baton.api.Stage, dev.baton.api.ContextView) throws java.lang.Exception;
+  public static dev.baton.api.ContextView runAndApply(dev.baton.api.Stage, dev.baton.api.ContextView, dev.baton.api.BatonConfig) throws java.lang.Exception;
+}
+
+public final class dev.baton.testkit.TestStageContext implements dev.baton.api.StageContext,java.lang.AutoCloseable {
+  public static dev.baton.testkit.TestStageContext of(dev.baton.api.ContextView);
+  public static dev.baton.testkit.TestStageContext empty();
+  public dev.baton.api.ContextView context();
+  public dev.baton.api.StageTasks tasks();
+  public int forkedTaskCount();
+  public void close();
+}

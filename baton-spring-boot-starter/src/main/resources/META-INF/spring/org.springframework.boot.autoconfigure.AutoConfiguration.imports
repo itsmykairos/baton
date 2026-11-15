@@ -1,0 +1,2 @@
+dev.baton.spring.boot.BatonAutoConfiguration
+dev.baton.spring.boot.BatonEndpointAutoConfiguration

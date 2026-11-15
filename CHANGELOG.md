@@ -50,6 +50,8 @@ First release.
   - `/actuator/baton`.
 - `baton-testkit`: `StageTester`, `PipelineResults` and `RecordingListener`.
 - `baton-bom` to align module versions.
+- A docs site with a getting-started guide, a cookbook of tested recipes and the
+  Javadoc, at <https://kairos-tools.github.io/baton/>.
 - JPMS modules: `dev.baton.api` is the only module applications compile against.
 
 [0.1.0]: https://github.com/kairos-tools/baton/releases/tag/v0.1.0

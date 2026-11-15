@@ -24,6 +24,8 @@ Gradle 9 wrapper, Java 21 toolchain. Configuration cache and build cache are on.
 ./gradlew publishToMavenLocal                     # inspect what would be published (signing only with a key)
 ./gradlew :examples:basic:run --args=--mermaid    # plain example; prints a Mermaid diagram of its run
 ./gradlew :examples:spring-boot:run               # Spring Boot web example on http://localhost:8080
+./gradlew :examples:cookbook:test docsJavadoc     # the docs site's samples, and Javadoc into build/docs-api
+mkdocs serve                                      # preview the docs site (pip install -r requirements-docs.txt)
 ./gradlew :baton-benchmarks:jmh -Pjmh="sequential200 -prof gc"   # JMH; -Pjmh passes a filter and JMH options
 ```
 
@@ -47,6 +49,7 @@ Core tests are whitebox: they live in `dev.baton.core.execution` and use
 - **Examples:** each folder under `examples/` with a `build.gradle.kts` is included
   automatically as `:examples:<folder>`. To add one, create the folder with its own build
   file (apply `application`); nothing else needs registering. Examples are never published.
+  `examples/cookbook` is tests only: the docs site's recipes.
 - **Non-modular modules:** the Spring starter and the adapters are automatic modules
   (`Automatic-Module-Name` in the jar manifest), not JPMS modules.
 
@@ -191,6 +194,13 @@ Separates the **logical outcome** from **physical worker exit** (`WorkerLifecycl
   Logback, which the MDC tests need because `slf4j-simple` has a no-op MDC).
 - **Docs in step:** a behaviour change updates the matching `docs/*.md`, the README, and
   the public Javadoc.
+  - `docs/` is also the docs site (`mkdocs.yml`, Material for MkDocs, pinned in
+    `requirements-docs.txt`), published to GitHub Pages from `main` by
+    `.github/workflows/docs.yml`, with each module's Javadoc under `api/`.
+  - Java on the site comes from the cookbook's recipe tests (`examples/cookbook`),
+    included between `// --8<-- [start:name]` and `// --8<-- [end:name]` markers.
+    Write new samples there, not inline, so they compile and run in the build.
+  - The site builds with `strict: true`: broken links and missing snippets fail it.
   - Javadoc warnings fail the build for `baton-api`, `baton-testkit`, the adapters,
     `baton-visualize` and the starter.
   - Internal modules (`baton-core`, the examples) are not lint-checked.

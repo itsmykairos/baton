@@ -147,6 +147,19 @@ subprojects {
     }
 }
 
+// The Javadoc of every module with a recorded API, for the docs site (mkdocs.yml):
+// build/docs-api/<module>/, copied under api/ after mkdocs builds the site.
+val docsJavadoc = tasks.register<Sync>("docsJavadoc") {
+    group = "documentation"
+    description = "Collects each published module's Javadoc into build/docs-api for the docs site."
+    into(layout.buildDirectory.dir("docs-api"))
+}
+apiChecked.forEach { module ->
+    docsJavadoc.configure {
+        from(project(":$module").tasks.named("javadoc")) { into(module) }
+    }
+}
+
 /**
  * Renders a module's public API: every public class in its compiled output, with its
  * public and protected members, as printed by `javap -public`, sorted for stability.

@@ -34,6 +34,7 @@ dependencies {
 | `examples/spring-boot` | A runnable Spring Boot web app with `/actuator/baton` and a dashboard (not published). | — |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
 | `examples/basic` | A runnable checkout pipeline (not published). | — |
+| `examples/cookbook` | The docs site's recipes, as tests (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
 
 All modules except the test and example modules are JPMS modules (`dev.baton.api`,
@@ -300,6 +301,20 @@ PipelineResults.requireSuccess(result);   // AssertionError with a readable resu
 StageResult charge = PipelineResults.stage(result, "payment/charge");
 System.out.println(PipelineResults.describe(result));
 ```
+
+## Documentation
+
+The docs site, <https://kairos-tools.github.io/baton/>, has a getting-started guide, a
+cookbook of recipes, the guides from `docs/` and the Javadoc of every module. It's built
+from `docs/` with Material for MkDocs and published from `main`. To preview it:
+
+```bash
+pip install -r requirements-docs.txt
+mkdocs serve
+```
+
+Code samples on the site come from the recipe tests in `examples/cookbook`, so they
+compile and run in the build.
 
 ## Build and run
 

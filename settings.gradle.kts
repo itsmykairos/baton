@@ -26,6 +26,12 @@ include(
     "baton-spring-boot-starter",
     "baton-integration-tests",
     "baton-benchmarks",
-    "baton-examples",
-    "baton-examples-spring"
 )
+
+// Every folder under examples/ with a build file is a runnable example, :examples:<folder>.
+// Adding an example needs no change here.
+file("examples")
+    .listFiles { dir -> dir.resolve("build.gradle.kts").isFile }
+    .orEmpty()
+    .sortedBy { it.name }
+    .forEach { include(":examples:${it.name}") }

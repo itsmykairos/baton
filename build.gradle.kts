@@ -36,7 +36,8 @@ val palantirJavaFormatVersion = libs.versions.palantir.java.format.get()
 // Build scripts, workflows and config: whitespace only.
 spotless {
     format("misc") {
-        target("*.gradle.kts", "*/*.gradle.kts", "gradle/*.toml", ".github/**/*.yml", ".gitignore", "*.properties")
+        target("**/*.gradle.kts", "gradle/*.toml", ".github/**/*.yml", ".gitignore", "*.properties")
+        targetExclude("**/build/**")
         trimTrailingWhitespace()
         endWithNewline()
     }

@@ -67,4 +67,4 @@ documentation sites render it, or into the Mermaid live editor.
 | CANCELLED | purple |
 | not reached | white, faint |
 
-To see one, run the example: `./gradlew :baton-examples:run --args=--mermaid`.
+To see one, run the example: `./gradlew :examples:basic:run --args=--mermaid`.

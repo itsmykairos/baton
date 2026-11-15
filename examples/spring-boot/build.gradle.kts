@@ -1,5 +1,5 @@
 // A runnable Spring Boot web app using the Baton starter. Not published.
-//   ./gradlew :baton-examples-spring:run   then open http://localhost:8080
+//   ./gradlew :examples:spring-boot:run   then open http://localhost:8080
 plugins {
     application
 }

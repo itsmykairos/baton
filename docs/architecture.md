@@ -23,8 +23,9 @@ with core on the runtime classpath, and checks the module descriptors.
 `baton-testkit` contains helpers that make it straightforward to test user-defined stages
 and pipeline behavior without depending on core internals.
 
-`baton-examples` contains runnable examples only. It should not become a dependency of
-the library modules.
+`examples/` holds runnable examples, one Gradle project per folder (`:examples:<folder>`),
+included automatically by `settings.gradle.kts`. They are not published and must not
+become dependencies of the library modules.
 
 ## Runtime direction
 

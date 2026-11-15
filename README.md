@@ -31,9 +31,9 @@ dependencies {
 | `baton-visualize` | Optional: Mermaid diagrams of pipelines and runs. | `implementation` |
 | `baton-slf4j` | Optional: carries the SLF4J MDC into stage threads, with run and stage keys. | `implementation` |
 | `baton-spring-boot-starter` | Optional: Spring Boot 4.1 auto-configuration, pipelines in `application.yml`, `/actuator/baton`. | `implementation` |
-| `baton-examples-spring` | A runnable Spring Boot web app with `/actuator/baton` and a dashboard (not published). | — |
+| `examples/spring-boot` | A runnable Spring Boot web app with `/actuator/baton` and a dashboard (not published). | — |
 | `baton-integration-tests` | Black-box tests of the API (not published). | — |
-| `baton-examples` | A runnable checkout pipeline (not published). | — |
+| `examples/basic` | A runnable checkout pipeline (not published). | — |
 | `baton-benchmarks` | JMH benchmarks of engine overhead (not published). See [docs/performance.md](docs/performance.md). | — |
 
 All modules except the test and example modules are JPMS modules (`dev.baton.api`,
@@ -207,7 +207,7 @@ baton:
 ```
 
 See [docs/spring-boot.md](docs/spring-boot.md). To try it, run
-`./gradlew :baton-examples-spring:run` and open <http://localhost:8080>: the page draws
+`./gradlew :examples:spring-boot:run` and open <http://localhost:8080>: the page draws
 the pipeline from `/actuator/baton` and runs checkouts on demand.
 
 ## Context propagation
@@ -307,7 +307,7 @@ System.out.println(PipelineResults.describe(result));
 ./gradlew build                    # compile, test, Javadoc, and the recorded public API (apiCheck)
 ./gradlew apiDump                  # record an intended public API change in api/<module>.api
 ./gradlew spotlessApply            # format the code (build fails on unformatted code)
-./gradlew :baton-examples:run      # the checkout example, on the module path
+./gradlew :examples:basic:run      # the checkout example, on the module path
 ./gradlew :baton-benchmarks:jmh    # engine benchmarks (~2 minutes)
 ```
 

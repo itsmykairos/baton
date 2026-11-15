@@ -22,8 +22,8 @@ Gradle 9 wrapper, Java 21 toolchain. Configuration cache and build cache are on.
 ./gradlew test --rerun-tasks -q                   # force a rerun; the build cache otherwise skips unchanged tests
 ./gradlew apiDump                                 # after an intended public API change: rewrite api/<module>.api
 ./gradlew publishToMavenLocal                     # inspect what would be published (signing only with a key)
-./gradlew :baton-examples:run --args=--mermaid    # plain example; prints a Mermaid diagram of its run
-./gradlew :baton-examples-spring:run              # Spring Boot web example on http://localhost:8080
+./gradlew :examples:basic:run --args=--mermaid    # plain example; prints a Mermaid diagram of its run
+./gradlew :examples:spring-boot:run               # Spring Boot web example on http://localhost:8080
 ./gradlew :baton-benchmarks:jmh -Pjmh="sequential200 -prof gc"   # JMH; -Pjmh passes a filter and JMH options
 ```
 
@@ -44,6 +44,9 @@ Core tests are whitebox: they live in `dev.baton.core.execution` and use
 - **`baton-integration-tests`** has `ModularityIT`, which loads api and core into a real
   module layer and asserts the exported packages. Adding an exported package means
   updating that test.
+- **Examples:** each folder under `examples/` with a `build.gradle.kts` is included
+  automatically as `:examples:<folder>`. To add one, create the folder with its own build
+  file (apply `application`); nothing else needs registering. Examples are never published.
 - **Non-modular modules:** the Spring starter and the adapters are automatic modules
   (`Automatic-Module-Name` in the jar manifest), not JPMS modules.
 

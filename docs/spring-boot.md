@@ -14,10 +14,10 @@ dependencies {
 }
 ```
 
-A runnable web app is in `baton-examples-spring`:
+A runnable web app is in `examples/spring-boot`:
 
 ```bash
-./gradlew :baton-examples-spring:run
+./gradlew :examples:spring-boot:run
 ```
 
 Then open <http://localhost:8080>. The page draws the configured `checkout` pipeline

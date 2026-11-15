@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>a nested pipeline whose stages are reported as children.</li>
  * </ul>
  *
- * <p>Run with {@code ./gradlew :baton-examples:run}.</p>
+ * <p>Run with {@code ./gradlew :examples:basic:run}.</p>
  */
 public final class BatonExample {
 

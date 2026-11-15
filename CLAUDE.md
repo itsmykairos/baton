@@ -172,8 +172,9 @@ Separates the **logical outcome** from **physical worker exit** (`WorkerLifecycl
   The version comes from git tags (axion-release, `incrementPrerelease`): exactly
   `0.1.0-RC1` on the tag `v0.1.0-RC1`, and a `-SNAPSHOT` between tags. Never put a
   `version=` back in `gradle.properties`. Java packages stay `dev.baton.*`.
-- CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. Workflows check out
-  with `fetch-depth: 0` so the version sees the tags. Releases are manual: the Release
+- CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. The Docs and Release
+  workflows check out with `fetch-depth: 0` so the version sees the tags (CI doesn't need
+  the version). Releases are manual: the Release
   workflow takes the version, tags it and uploads it; then you press Publish in the
   Central Portal. `docs/releasing.md` has the
   steps, and `CHANGELOG.md` records user-visible changes.

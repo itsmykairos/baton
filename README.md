@@ -5,13 +5,12 @@ layers: each layer is one sequential stage or a group of parallel stages. Stages
 an immutable context snapshot and return a patch of typed writes, so they never share
 mutable state.
 
-Status: `0.1.0`, preparing for its first release to Maven Central (see
-[CHANGELOG.md](CHANGELOG.md)). Until then, build from source or run
-`./gradlew publishToMavenLocal`.
+Status: `0.1.0-RC1`, the release candidate for 0.1.0, Baton's first release on Maven
+Central (see [CHANGELOG.md](CHANGELOG.md)). The API may still change before 0.1.0.
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.kairos-tools:baton-bom:0.1.0"))
+    implementation(platform("io.github.kairos-tools:baton-bom:0.1.0-RC1"))
     implementation("io.github.kairos-tools:baton-api")
     runtimeOnly("io.github.kairos-tools:baton-core")
     testImplementation("io.github.kairos-tools:baton-testkit")

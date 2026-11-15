@@ -9,7 +9,7 @@ Baton needs Java 21. Import the BOM to align module versions, then compile again
 
     ```kotlin
     dependencies {
-        implementation(platform("io.github.kairos-tools:baton-bom:0.1.0"))
+        implementation(platform("io.github.kairos-tools:baton-bom:0.1.0-RC1"))
         implementation("io.github.kairos-tools:baton-api")
         runtimeOnly("io.github.kairos-tools:baton-core")
         testImplementation("io.github.kairos-tools:baton-testkit")
@@ -24,7 +24,7 @@ Baton needs Java 21. Import the BOM to align module versions, then compile again
         <dependency>
           <groupId>io.github.kairos-tools</groupId>
           <artifactId>baton-bom</artifactId>
-          <version>0.1.0</version>
+          <version>0.1.0-RC1</version>
           <type>pom</type>
           <scope>import</scope>
         </dependency>
@@ -49,9 +49,10 @@ Baton needs Java 21. Import the BOM to align module versions, then compile again
     </dependencies>
     ```
 
-!!! note "Not on Maven Central yet"
-    0.1.0 hasn't been published yet. Until it is, run `./gradlew publishToMavenLocal`
-    in a clone of the repository, and add `mavenLocal()` to your repositories.
+!!! note "Release candidate"
+    0.1.0-RC1 is the release candidate for 0.1.0, Baton's first release. Try it and
+    report problems on [GitHub](https://github.com/kairos-tools/baton/issues); the API
+    may still change before 0.1.0.
 
 `baton-api` is the only module your code compiles against. The engine in `baton-core`
 is found at startup through `ServiceLoader`. On the module path, `requires dev.baton.api`

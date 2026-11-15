@@ -6,7 +6,7 @@ configuration, and adds an Actuator endpoint.
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.kairos-tools:baton-bom:0.1.0"))
+    implementation(platform("io.github.kairos-tools:baton-bom:0.1.0-RC1"))
     implementation("io.github.kairos-tools:baton-spring-boot-starter")
     // Optional: metrics and tracing are wired when these are present.
     implementation("io.github.kairos-tools:baton-micrometer")

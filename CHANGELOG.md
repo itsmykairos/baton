@@ -6,7 +6,9 @@ change the API. Every public API change shows in `api/<module>.api`.
 
 ## [0.1.0] - unreleased
 
-First release.
+First release. Published first as the release candidate
+[0.1.0-RC1](https://github.com/kairos-tools/baton/releases/tag/v0.1.0-RC1), with
+everything below.
 
 ### Pipelines and execution
 - Pipelines of sequential and parallel layers on virtual threads, sharing an immutable

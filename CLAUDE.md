@@ -21,6 +21,7 @@ Gradle 9 wrapper, Java 21 toolchain. Configuration cache and build cache are on.
 ./gradlew :baton-core:test --tests '*NestedPipelineTest.childInheritsNestedStageDeadline'  # one method
 ./gradlew test --rerun-tasks -q                   # force a rerun; the build cache otherwise skips unchanged tests
 ./gradlew apiDump                                 # after an intended public API change: rewrite api/<module>.api
+./gradlew cV                                      # the current version, from git tags (axion-release)
 ./gradlew publishToMavenLocal                     # inspect what would be published (signing only with a key)
 ./gradlew :examples:basic:run --args=--mermaid    # plain example; prints a Mermaid diagram of its run
 ./gradlew :examples:spring-boot:run               # Spring Boot web example on http://localhost:8080
@@ -167,10 +168,14 @@ Separates the **logical outcome** from **physical worker exit** (`WorkerLifecycl
   columns, Javadoc left alone) and trims whitespace in build files and workflows.
   `spotlessCheck` is part of `check`, so run `./gradlew spotlessApply` before committing.
   Formatter and plugin versions are in `gradle/libs.versions.toml`.
-- Coordinates are `io.github.kairos-tools:<module>`, with `group` and `version` in
-  `gradle.properties`. Java packages stay `dev.baton.*`.
-- CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. Releases are
-  manual (`release.yml`, then Publish in the Central Portal). `docs/releasing.md` has the
+- Coordinates are `io.github.kairos-tools:<module>`, with `group` in `gradle.properties`.
+  The version comes from git tags (axion-release, `incrementPrerelease`): exactly
+  `0.1.0-RC1` on the tag `v0.1.0-RC1`, and a `-SNAPSHOT` between tags. Never put a
+  `version=` back in `gradle.properties`. Java packages stay `dev.baton.*`.
+- CI (`.github/workflows/ci.yml`) runs `build` plus repeated core tests. Workflows check out
+  with `fetch-depth: 0` so the version sees the tags. Releases are manual: the Release
+  workflow takes the version, tags it and uploads it; then you press Publish in the
+  Central Portal. `docs/releasing.md` has the
   steps, and `CHANGELOG.md` records user-visible changes.
 
 ## Rules for this repository

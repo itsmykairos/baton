@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # axion-release reads the version from tags
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

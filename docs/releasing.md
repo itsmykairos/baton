@@ -13,10 +13,24 @@ The examples, benchmarks and integration tests are never published.
 
 ## Versions
 
-- `X.Y.Z-SNAPSHOT` between releases. The Release workflow refuses snapshots.
-- `X.Y.Z-RC<n>` for release candidates, such as `0.1.0-RC1`. Maven and Gradle both sort
-  a candidate before its final version.
-- `X.Y.Z` for the final release.
+The version comes from git tags, through the axion-release Gradle plugin. Nothing in the
+repository holds it.
+
+| Where the build runs | Version |
+|---|---|
+| On the commit tagged `v0.1.0-RC1` | `0.1.0-RC1` |
+| On `main` after `v0.1.0-RC1` | `0.1.0-RC2-SNAPSHOT` |
+| On `main` after `v0.1.0` | `0.1.1-SNAPSHOT` |
+| On `main` before any tag | `0.1.0-SNAPSHOT` |
+| On another branch | the same, with the branch name added, for example `0.1.0-feat-v4-SNAPSHOT` |
+
+`./gradlew cV` prints the current version.
+
+- `X.Y.Z-RC<n>` is a release candidate. Maven and Gradle both sort a candidate before
+  its final version.
+- `X.Y.Z` is the final release.
+- To make snapshots after a final release read the next minor, run
+  `./gradlew markNextVersion -Prelease.version=0.2.0` once. This pushes a marker tag.
 
 **A version published to Maven Central is permanent:** it can't be deleted or replaced.
 A broken candidate is followed by the next one (`-RC2`), never re-published.
@@ -50,41 +64,44 @@ A broken candidate is followed by the next one (`-RC2`), never re-published.
 
 ## Cutting a release
 
-1. **On `main`, set the release version** in `gradle.properties`, for example
-   `0.1.0-RC1` or `0.1.0`.
-   - For a final release, replace "unreleased" in `CHANGELOG.md` with the date.
-   - Make the install snippets in the README, `docs/getting-started.md` and
-     `docs/spring-boot.md` use the new version.
+1. **Get `main` ready.**
    - Work from a phase branch reaches `main` through a pull request merged with **Create
      a merge commit**. Squash and rebase merges rewrite commit ids, which would break
      `.git-blame-ignore-revs`.
-2. **Check:** `./gradlew build`, which includes `apiCheck`, then commit and push.
-3. **Run the Release workflow** from the Actions tab, on `main`.
-   - It first checks that it runs on `main`, that the version isn't a snapshot, and that
-     all four secrets are set. Then it builds, signs and uploads a deployment to the
-     Central Portal.
-4. **Publish:** check the deployment on central.sonatype.com (every module listed,
+   - Make the install snippets in the README, `docs/getting-started.md` and
+     `docs/spring-boot.md` use the version you're about to release.
+   - For a final release, replace "unreleased" in `CHANGELOG.md` with the date.
+2. **Run the Release workflow** from the Actions tab, on `main`, with the version, for
+   example `0.1.0-RC1`. It:
+   1. checks that it runs on `main`, that the version looks like `X.Y.Z` or `X.Y.Z-RCn`,
+      that it isn't tagged yet, and that all four secrets are set;
+   2. creates the tag `v<version>` on the runner, so the build's version is exactly the
+      release version;
+   3. builds, signs and uploads a deployment to the Central Portal;
+   4. only if the upload succeeded, pushes the tag and creates a **draft** GitHub
+      Release with generated notes, marked as a pre-release for an RC.
+
+   If a step fails before the upload, nothing is tagged, and you can run it again.
+3. **Publish:** check the deployment on central.sonatype.com (every module listed,
    validation passed) and press **Publish**. It reaches Maven Central within about 30
    minutes.
-5. **Check it from a clean build:** a throwaway project that uses only `mavenCentral()`
+4. **Check it from a clean build:** a throwaway project that uses only `mavenCentral()`
    and the BOM at the new version should resolve the modules and run a pipeline.
-6. **Tag it, and create the GitHub Release:**
-   ```bash
-   git tag v0.1.0-RC1 && git push origin v0.1.0-RC1
-   gh release create v0.1.0-RC1 --prerelease --title "Baton 0.1.0-RC1" --notes-file <notes>
-   ```
-   Leave out `--prerelease` for a final release.
-7. **Set the next version** on `main`:
-   - after a candidate, back to the snapshot of the same version (`0.1.0-SNAPSHOT`);
-   - after a final release, the next minor (`0.2.0-SNAPSHOT`), with a new "unreleased"
-     section in `CHANGELOG.md`.
+5. **Publish the draft GitHub Release,** after editing its notes from `CHANGELOG.md` if
+   you like.
 
 **Releasing from your machine** needs the same values as Gradle properties, for example
 in `~/.gradle/gradle.properties`:
 - `mavenCentralUsername` and `mavenCentralPassword`;
 - `signingInMemoryKey` and `signingInMemoryKeyPassword`.
 
-Then run `./gradlew publishToMavenCentral --no-configuration-cache`.
+Then tag the commit and publish from it:
+
+```bash
+./gradlew createRelease -Prelease.forceVersion=0.1.0-RC1 -Prelease.localOnly
+./gradlew publishToMavenCentral --no-configuration-cache
+git push origin v0.1.0-RC1   # only once the upload succeeded
+```
 
 Artifacts are signed only when `signingInMemoryKey` is set, so
 `./gradlew publishToMavenLocal` works without a key, for checking what would be

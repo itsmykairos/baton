@@ -10,6 +10,7 @@ spring-boot = "4.1.2"
 palantir-java-format = "2.102.0"
 spotless = "8.10.4"
 maven-publish = "0.37.0"
+axion-release = "1.21.4"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -35,3 +36,4 @@ spring-boot-configuration-processor = { module = "org.springframework.boot:sprin
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+axion-release = { id = "pl.allegro.tech.build.axion-release", version.ref = "axion-release" }

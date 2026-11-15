@@ -14,9 +14,19 @@ plugins {
     base
     alias(libs.plugins.maven.publish) apply false
     alias(libs.plugins.spotless)
+    alias(libs.plugins.axion.release)
 }
 
-// group and version come from gradle.properties.
+// group comes from gradle.properties. The version comes from git tags (axion-release):
+// exactly 0.1.0-RC1 on the commit tagged v0.1.0-RC1, and a -SNAPSHOT between tags
+// (0.1.0-SNAPSHOT before the first tag; on other branches with the branch name added).
+// The Release workflow creates the tag. ./gradlew cV prints the current version.
+scmVersion {
+    // After v0.1.0-RC1 snapshots read 0.1.0-RC2-SNAPSHOT (the default would say
+    // 0.1.1-SNAPSHOT); after a final release, the next patch.
+    versionIncrementer("incrementPrerelease")
+}
+version = scmVersion.version
 
 /** Published modules and their POM descriptions. */
 val published = mapOf(

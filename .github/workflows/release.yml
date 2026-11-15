@@ -1,21 +1,38 @@
 name: Release
 
-# Run by hand from the Actions tab once the version in gradle.properties is final.
-# Uploads signed artifacts to the Maven Central Portal as a deployment; it is published
-# only after you press "Publish" for it on central.sonatype.com.
+# Run by hand from the Actions tab on main, with the version to release (0.1.0-RC1 or
+# 0.1.0). The version comes from git tags (axion-release), so the workflow:
+#   1. checks the run, the version and the secrets, before building anything;
+#   2. creates the tag v<version> on this runner only;
+#   3. builds, signs and uploads the release to the Maven Central Portal;
+#   4. only if the upload succeeded, pushes the tag and creates a draft GitHub Release.
+# The deployment is published only after you press "Publish" on central.sonatype.com.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, such as 0.1.0-RC1 or 0.1.0 (no leading v)"
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
-      # Stops before anything is built or uploaded: releases come only from main, never
-      # as a snapshot, and never unsigned (Central rejects unsigned artifacts).
+        with:
+          fetch-depth: 0 # axion-release reads the version from tags
+      # Stops before anything is built or uploaded: releases come only from main, as
+      # X.Y.Z or X.Y.Z-RCn, never twice, and never unsigned (Central rejects those).
       - name: Check the release
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -27,13 +44,14 @@ jobs:
             echo "::error::Releases run from main only, not $GITHUB_REF."
             exit 1
           fi
-          version=$(sed -n 's/^version=//p' gradle.properties)
-          case "$version" in
-            ""|*-SNAPSHOT)
-              echo "::error::gradle.properties has version '$version'; set a release version such as 0.1.0 or 0.1.0-RC1."
-              exit 1
-              ;;
-          esac
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-RC[0-9]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a release version: use X.Y.Z or X.Y.Z-RCn, such as 0.1.0-RC1."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::v$VERSION is already tagged. A published version can't be released again."
+            exit 1
+          fi
           missing=""
           for name in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD SIGNING_KEY SIGNING_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
@@ -44,22 +62,43 @@ jobs:
             echo "::error::Missing repository secrets:$missing (see docs/releasing.md)."
             exit 1
           fi
-          echo "Releasing $version"
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "Releasing $VERSION from $(git rev-parse --short HEAD)"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew build
+      # The tag exists only on this runner until the upload has succeeded.
+      - name: Tag v${{ inputs.version }} locally
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ./gradlew createRelease -Prelease.forceVersion="$VERSION" -Prelease.localOnly -Prelease.disableChecks
+          actual=$(./gradlew currentVersion -q -Prelease.quiet --no-configuration-cache)
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::Expected version $VERSION on the tag, but the build reports '$actual'."
+            exit 1
+          fi
+      - run: ./gradlew build --no-configuration-cache
       - run: ./gradlew publishToMavenCentral --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      - name: Push the tag and draft the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push origin "v$VERSION"
+          prerelease=""
+          case "$VERSION" in *-RC*) prerelease="--prerelease" ;; esac
+          gh release create "v$VERSION" --draft $prerelease --verify-tag \
+            --title "Baton $VERSION" --generate-notes
       - name: Next steps
         run: |
-          echo "### Baton $VERSION uploaded" >> "$GITHUB_STEP_SUMMARY"
-          echo "Check the deployment on https://central.sonatype.com/publishing/deployments and press Publish." >> "$GITHUB_STEP_SUMMARY"
-          echo "Then tag v$VERSION and create the GitHub Release (docs/releasing.md)." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Baton $VERSION uploaded and tagged v$VERSION"
+            echo "1. Check the deployment on https://central.sonatype.com/publishing/deployments and press **Publish**."
+            echo "2. Once it is on Maven Central, publish the draft GitHub Release for v$VERSION."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -461,11 +461,15 @@ final class ExecutionEngine {
                         propagation.scope(ExecutionScope.Kind.STAGE, run.path)),
                 run.cancel::run,
                 registered -> {
+                    // Registered with the control before the stage can start: a stage
+                    // tracked only after submit() returns could already be running when
+                    // a cancellation passes it by, and a parent's snapshot of this
+                    // engine would then miss its outcome.
+                    control.register(registered);
                     run.self = registered;
                     stageRuns.put(registered, run);
                     register.accept(registered);
                 });
-        control.track(task);
         return task;
     }
 

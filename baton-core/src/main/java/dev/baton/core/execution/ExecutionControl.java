@@ -3,6 +3,7 @@ package dev.baton.core.execution;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
 
 /** Coordinates cancellation and registration of the run's active stage tasks. */
 final class ExecutionControl {
@@ -44,6 +45,28 @@ final class ExecutionControl {
         }
     }
 
+    /**
+     * Registers a task before it can start, from {@link TrackedTask}'s {@code beforeStart}
+     * callback, so a cancellation that arrives while it runs always reaches it and
+     * {@link #cancel()} returns only once it is done.
+     *
+     * @throws RejectedExecutionException if the run is already cancelled; the task is
+     *     then never started
+     */
+    void register(TrackedTask<?> task) {
+        synchronized (lock) {
+            if (cancelled) {
+                throw new RejectedExecutionException("Pipeline execution was cancelled");
+            }
+            activeTasks.add(task);
+        }
+    }
+
+    /**
+     * Registers a task that has already been submitted, cancelling it at once if the run
+     * is cancelled. A cancellation between submission and this call misses the task
+     * until then; use {@link #register} where that matters.
+     */
     void track(TrackedTask<?> task) {
         boolean cancelImmediately;
         synchronized (lock) {
